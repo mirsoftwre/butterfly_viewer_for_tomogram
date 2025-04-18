@@ -18,7 +18,7 @@ Credits:
 
 
 import argparse
-import sip
+from PyQt5 import sip
 import time
 import os
 from datetime import datetime
@@ -76,6 +76,8 @@ class SplitViewMdiChild(SplitView):
     """
 
     shortcut_shift_x_was_activated = QtCore.pyqtSignal()
+    # Signal when z-slice changed in volumetric data
+    slice_changed = QtCore.pyqtSignal(int)
 
     def __init__(self, pixmap, filename_main_topleft, name, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth):
         super().__init__(pixmap, filename_main_topleft, name, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth)
@@ -88,6 +90,175 @@ class SplitViewMdiChild(SplitView):
 
         self._sync_this_zoom = True
         self._sync_this_pan = True
+        
+        # Volumetric data handling
+        self.is_volumetric = False
+        self.volumetric_handler = None
+        self.current_slice = 0
+        self.total_slices = 0
+        
+        # Create Z-slice controls (hidden by default)
+        self.z_slice_controls = QtWidgets.QWidget(self)
+        self.z_slice_controls.setVisible(False)
+        layout = QtWidgets.QVBoxLayout(self.z_slice_controls)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(4)
+        
+        # Slice label
+        self.slice_label = QtWidgets.QLabel("0/0", self.z_slice_controls)
+        self.slice_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.slice_label.setMinimumWidth(60)
+        layout.addWidget(self.slice_label)
+        
+        # Previous slice button
+        self.prev_slice_button = QtWidgets.QPushButton("▲", self.z_slice_controls)
+        self.prev_slice_button.setToolTip("Previous slice")
+        self.prev_slice_button.clicked.connect(self.goto_previous_slice)
+        layout.addWidget(self.prev_slice_button)
+        
+        # Slice slider (vertical orientation)
+        self.slice_slider = QtWidgets.QSlider(QtCore.Qt.Vertical, self.z_slice_controls)
+        self.slice_slider.setToolTip("Navigate through slices")
+        self.slice_slider.setMinimum(0)
+        self.slice_slider.setMaximum(0)
+        self.slice_slider.setInvertedAppearance(True)  # Invert so that top is first slice
+        self.slice_slider.valueChanged.connect(self.on_slice_slider_changed)
+        self.slice_slider.setMinimumHeight(150)
+        layout.addWidget(self.slice_slider, 1)
+        
+        # Next slice button
+        self.next_slice_button = QtWidgets.QPushButton("▼", self.z_slice_controls)
+        self.next_slice_button.setToolTip("Next slice")
+        self.next_slice_button.clicked.connect(self.goto_next_slice)
+        layout.addWidget(self.next_slice_button)
+        
+        # Add slice controls to layout
+        self.z_slice_controls.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 120);
+                border-radius: 5px;
+                padding: 2px;
+            }
+            QPushButton {
+                min-width: 30px;
+                max-width: 60px;
+                min-height: 25px;
+                max-height: 25px;
+                background-color: rgba(60, 60, 60, 180);
+                color: white;
+                border-radius: 3px;
+                border: 1px solid rgba(100, 100, 100, 120);
+            }
+            QLabel {
+                color: white;
+                font-size: 9pt;
+            }
+            QSlider {
+                min-width: 20px;
+            }
+        """)
+        
+        # Position at left of the view, staying away from topleft and bottomleft controls
+        self.z_slice_controls.setFixedWidth(50)
+        self.z_slice_controls.setFixedHeight(250)
+        
+        # Add keyboard shortcuts for slice navigation
+        self.shortcut_next_slice = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Down), self)
+        self.shortcut_next_slice.activated.connect(self.goto_next_slice)
+        
+        self.shortcut_prev_slice = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Up), self)
+        self.shortcut_prev_slice.activated.connect(self.goto_previous_slice)
+    
+    def resizeEvent(self, event):
+        """Handle resize events to reposition the Z-slice controls."""
+        super().resizeEvent(event)
+        if hasattr(self, 'z_slice_controls'):
+            # Position the z-slice controls at the middle-left, away from top and bottom controls
+            middle_y = (self.height() - self.z_slice_controls.height()) // 2
+            # Ensure it doesn't overlap with topleft or bottomleft controls
+            self.z_slice_controls.move(10, middle_y)
+    
+    def setup_volumetric_mode(self, volumetric_handler, current_slice):
+        """Set up the widget to handle volumetric data.
+        
+        Args:
+            volumetric_handler: VolumetricImageHandler instance for the file
+            current_slice: Initial slice to display
+        """
+        self.is_volumetric = True
+        self.volumetric_handler = volumetric_handler
+        self.current_slice = current_slice
+        self.total_slices = volumetric_handler.total_slices
+        
+        # Configure slider
+        self.slice_slider.setMinimum(0)
+        self.slice_slider.setMaximum(self.total_slices - 1)
+        self.slice_slider.setValue(current_slice)
+        
+        # Update label
+        self.update_slice_label()
+        
+        # Show controls and position them
+        self.z_slice_controls.setVisible(True)
+        # Position at the middle-left of the view
+        middle_y = (self.height() - self.z_slice_controls.height()) // 2
+        self.z_slice_controls.move(10, middle_y)
+    
+    def update_slice_label(self):
+        """Update the slice label with current slice information."""
+        self.slice_label.setText(f"{self.current_slice + 1}/{self.total_slices}")
+    
+    def load_slice(self, slice_index):
+        """Load a specific slice of volumetric data.
+        
+        Args:
+            slice_index: Index of the slice to load
+        """
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+        
+        # Ensure valid slice index
+        if slice_index < 0:
+            slice_index = 0
+        elif slice_index >= self.total_slices:
+            slice_index = self.total_slices - 1
+        
+        # Get pixmap for selected slice
+        pixmap = self.volumetric_handler.get_slice_pixmap(slice_index)
+        if pixmap:
+            # Update pixmap in view
+            self._scene_main_topleft.clear()
+            self._pixmap_item_main_topleft = self._scene_main_topleft.addPixmap(pixmap)
+            self._pixmap_main_topleft = pixmap
+            
+            # Update current slice
+            self.current_slice = slice_index
+            
+            # Update UI
+            self.slice_slider.setValue(slice_index)
+            self.update_slice_label()
+            
+            # Emit signal
+            self.slice_changed.emit(slice_index)
+    
+    def goto_next_slice(self):
+        """Navigate to the next slice in volumetric data."""
+        if self.is_volumetric and self.current_slice < self.total_slices - 1:
+            self.load_slice(self.current_slice + 1)
+    
+    def goto_previous_slice(self):
+        """Navigate to the previous slice in volumetric data."""
+        if self.is_volumetric and self.current_slice > 0:
+            self.load_slice(self.current_slice - 1)
+    
+    def on_slice_slider_changed(self, value):
+        """Handle slice slider value change.
+        
+        Args:
+            value: New slider value representing slice index
+        """
+        if self.is_volumetric and value != self.current_slice:
+            self.load_slice(value)
     
     @property
     def sync_this_zoom(self):
@@ -219,7 +390,6 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.centralwidget_during_fullscreen_pushbutton = QtWidgets.QToolButton() # Needed for users to return the image viewer to the main window if the window of the viewer is lost during fullscreen
         self.centralwidget_during_fullscreen_pushbutton.setText("Close Fullscreen") # Needed for users to return the image viewer to the main window if the window of the viewer is lost during fullscreen
         self.centralwidget_during_fullscreen_pushbutton.clicked.connect(self.set_fullscreen_off)
-        self.centralwidget_during_fullscreen_pushbutton.setStyleSheet("font-size: 11pt")
         self.centralwidget_during_fullscreen_layout = QtWidgets.QVBoxLayout()
         self.centralwidget_during_fullscreen_layout.setAlignment(QtCore.Qt.AlignCenter)
         self.centralwidget_during_fullscreen_layout.addWidget(self.centralwidget_during_fullscreen_pushbutton, alignment=QtCore.Qt.AlignCenter)
@@ -898,10 +1068,89 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         transform_mode_smooth = self.is_global_transform_mode_smooth
         
+        # Check if the file is a volumetric image
+        try:
+            # Import locally to avoid circular imports
+            from aux_volumetric import VolumetricImageHandler
+            is_volumetric = VolumetricImageHandler.is_volumetric_file(filename_main_topleft)
+            
+            if is_volumetric:
+                # Handle volumetric image - load the middle slice
+                try:
+                    volumetric_handler = VolumetricImageHandler(filename_main_topleft)
+                    center_slice_index = volumetric_handler.get_center_slice_index()
+                    pixmap = volumetric_handler.get_slice_pixmap(center_slice_index)
+                    
+                    if pixmap is None:
+                        raise ValueError("Failed to load middle slice of volumetric image")
+                        
+                    # For volumetric images, we don't support overlays
+                    pixmap_topright = None
+                    pixmap_bottomleft = None
+                    pixmap_bottomright = None
+                    
+                    QtWidgets.QApplication.restoreOverrideCursor()
+                    
+                    child = self.createMdiChild(pixmap, filename_main_topleft, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth)
+                    
+                    # Setup volumetric mode in the child
+                    child.setup_volumetric_mode(volumetric_handler, center_slice_index)
+                    
+                    # Connect slice changed signal to update the label
+                    child.slice_changed.connect(lambda slice_idx: 
+                        child.label_main_topleft.setText(f"{filename_main_topleft} (Volumetric - Slice {slice_idx+1}/{volumetric_handler.total_slices})"))
+                    
+                    # Show filename with indication it's a volumetric image
+                    child.label_main_topleft.setText(f"{filename_main_topleft} (Volumetric - Slice {center_slice_index+1}/{volumetric_handler.total_slices})")
+                    child.label_topright.setText("")
+                    child.label_bottomright.setText("")
+                    child.label_bottomleft.setText("")
+                    
+                    child.show()
+                    
+                    if activeMdiChild:
+                        if self._synchPanAct.isChecked():
+                            self.synchPan(activeMdiChild)
+                        if self._synchZoomAct.isChecked():
+                            self.synchZoom(activeMdiChild)
+                            
+                    self._mdiArea.tile_what_was_done_last_time()
+                    
+                    child.set_close_pushbutton_always_visible(self.is_interface_showing)
+                    if self.scene_background_color is not None:
+                        child.set_scene_background_color(self.scene_background_color)
+                    
+                    self.updateRecentFileSettings(filename_main_topleft)
+                    self.updateRecentFileActions()
+                    
+                    self._last_accessed_fullpath = filename_main_topleft
+                    
+                    self.display_loading_grayout(False)
+                    
+                    sync_by = self.sync_zoom_by
+                    child.update_sync_zoom_by(sync_by)
+                    
+                    child.fitToWindow()
+                    
+                    self.statusBar().showMessage("Volumetric file loaded - showing center slice. Use slider to navigate through slices.", 4000)
+                    return
+                    
+                except Exception as e:
+                    QtWidgets.QApplication.restoreOverrideCursor()
+                    self.display_loading_grayout(True, "Waiting on dialog box...")
+                    QtWidgets.QMessageBox.warning(self, APPNAME,
+                                             f"Error loading volumetric image: {str(e)}")
+                    self.display_loading_grayout(False)
+                    return
+        except ImportError:
+            # If aux_volumetric can't be imported, continue with normal image loading
+            pass
+                
+        # Handle regular 2D image - use existing code
         pixmap = QtGui.QPixmap(filename_main_topleft)
-        pixmap_topright = QtGui.QPixmap(filename_topright)
-        pixmap_bottomleft = QtGui.QPixmap(filename_bottomleft)
-        pixmap_bottomright = QtGui.QPixmap(filename_bottomright)
+        pixmap_topright = QtGui.QPixmap(filename_topright) if filename_topright else None
+        pixmap_bottomleft = QtGui.QPixmap(filename_bottomleft) if filename_bottomleft else None
+        pixmap_bottomright = QtGui.QPixmap(filename_bottomright) if filename_bottomright else None
         
         QtWidgets.QApplication.restoreOverrideCursor()
         
@@ -919,20 +1168,23 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         if angle:
             pixmap = pixmap.transformed(QtGui.QTransform().rotate(angle))
         
-        angle = get_exif_rotation_angle(filename_topright)
-        if angle:
-            pixmap_topright = pixmap_topright.transformed(QtGui.QTransform().rotate(angle))
-
-        angle = get_exif_rotation_angle(filename_bottomright)
-        if angle:
-            pixmap_bottomright = pixmap_bottomright.transformed(QtGui.QTransform().rotate(angle))
-
-        angle = get_exif_rotation_angle(filename_bottomleft)
-        if angle:
-            pixmap_bottomleft = pixmap_bottomleft.transformed(QtGui.QTransform().rotate(angle))
-
+        if filename_topright:
+            angle = get_exif_rotation_angle(filename_topright)
+            if angle:
+                pixmap_topright = pixmap_topright.transformed(QtGui.QTransform().rotate(angle))
+        
+        if filename_bottomright:
+            angle = get_exif_rotation_angle(filename_bottomright)
+            if angle:
+                pixmap_bottomright = pixmap_bottomright.transformed(QtGui.QTransform().rotate(angle))
+        
+        if filename_bottomleft:
+            angle = get_exif_rotation_angle(filename_bottomleft)
+            if angle:
+                pixmap_bottomleft = pixmap_bottomleft.transformed(QtGui.QTransform().rotate(angle))
+        
         child = self.createMdiChild(pixmap, filename_main_topleft, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth)
-
+        
         # Show filenames
         child.label_main_topleft.setText(filename_main_topleft)
         child.label_topright.setText(filename_topright)
@@ -940,7 +1192,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         child.label_bottomleft.setText(filename_bottomleft)
         
         child.show()
-
+        
         if activeMdiChild:
             if self._synchPanAct.isChecked():
                 self.synchPan(activeMdiChild)
@@ -948,23 +1200,23 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 self.synchZoom(activeMdiChild)
                 
         self._mdiArea.tile_what_was_done_last_time()
-
+        
         child.set_close_pushbutton_always_visible(self.is_interface_showing)
         if self.scene_background_color is not None:
             child.set_scene_background_color(self.scene_background_color)
-
+        
         self.updateRecentFileSettings(filename_main_topleft)
         self.updateRecentFileActions()
         
         self._last_accessed_fullpath = filename_main_topleft
-
+        
         self.display_loading_grayout(False)
         
         sync_by = self.sync_zoom_by
         child.update_sync_zoom_by(sync_by)
-
+        
         child.fitToWindow()
-
+        
         self.statusBar().showMessage("File loaded", 2000)
 
     def load_from_dragged_and_dropped_file(self, filename_main_topleft):
