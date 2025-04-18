@@ -366,6 +366,44 @@ class DragDropImageLabel(QtWidgets.QWidget):
         if self.show_filepath_while_loading:
             loading_text = loading_text.replace("...",  " '" + file_path.split("/")[-1] + "'...")
         self.display_loading_grayout(True, loading_text)
+        
+        # Check if the file is a volumetric image (multi-page TIFF)
+        try:
+            # Import locally to avoid circular imports
+            from aux_volumetric import VolumetricImageHandler
+            is_volumetric = VolumetricImageHandler.is_volumetric_file(file_path)
+            
+            if is_volumetric:
+                # If it's volumetric, load the center slice for the thumbnail
+                try:
+                    volumetric_handler = VolumetricImageHandler(file_path)
+                    center_slice_index = volumetric_handler.get_center_slice_index()
+                    pixmap = volumetric_handler.get_slice_pixmap(center_slice_index)
+                    
+                    if pixmap is None:
+                        self.display_loading_grayout(False)
+                        return False
+                        
+                    # Handle EXIF rotation
+                    angle = get_exif_rotation_angle(file_path)
+                    if angle:
+                        pixmap = pixmap.transformed(QtGui.QTransform().rotate(angle))
+                    
+                    self.set_image(pixmap)
+                    self.set_filename_label(f"{file_path} (Volumetric)")
+                    self.file_path = file_path
+                    self.display_loading_grayout(False)
+                    return True
+                
+                except Exception as e:
+                    print(f"Error loading volumetric image: {e}")
+                    self.display_loading_grayout(False)
+                    return False
+        except ImportError:
+            # If aux_volumetric can't be imported, continue with normal image loading
+            pass
+            
+        # Standard image loading for non-volumetric files
         pixmap = QtGui.QPixmap(file_path)
         if pixmap.depth() is 0:
             self.display_loading_grayout(False)
