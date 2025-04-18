@@ -1,0 +1,17 @@
+# Butterfly Viewer dependencies
+# Generated from environment.yml
+
+# Core dependencies
+pillow==8.3.1
+PyQt5==5.15.11
+sip==6.8.6
+piexif==1.1.3
+
+# Python certificates
+certifi==2021.5.30
+wincertstore==0.2
+
+# For Windows/macOS compatibility
+# These may be optional depending on your system
+# pywin32 ; platform_system=="Windows"
+# Adjust versions as needed for your platform 
