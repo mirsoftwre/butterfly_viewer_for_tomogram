@@ -20,12 +20,14 @@ Keyboard shortcuts:
     +/-: Adjust maximum display range
     Ctrl++/Ctrl+-: Adjust minimum display range
     R: Reset display range to detected values
+    F: Force current range for all slices
 """
 
 import os
 import sys
 import argparse
 from PyQt5 import QtWidgets, QtGui, QtCore
+import inspect
 
 # Add parent directory to path to import from butterfly_viewer
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -111,10 +113,15 @@ class VolumetricTesterApp(QtWidgets.QMainWindow):
         self.reset_range_button = QtWidgets.QPushButton("Reset Range")
         self.reset_range_button.clicked.connect(self._reset_display_range)
         
+        self.force_range_button = QtWidgets.QPushButton("Force Range")
+        self.force_range_button.setToolTip("Use current range for all slices")
+        self.force_range_button.clicked.connect(self._force_display_range)
+        
         range_layout.addWidget(range_label)
         range_layout.addWidget(self.min_value_label)
         range_layout.addWidget(self.max_value_label)
         range_layout.addWidget(self.reset_range_button)
+        range_layout.addWidget(self.force_range_button)
         
         # Add controls to main layout
         main_layout.addWidget(scroll_area, 1)
@@ -144,7 +151,7 @@ class VolumetricTesterApp(QtWidgets.QMainWindow):
         # Create status bar
         self.statusBar().showMessage("Ready")
         self.statusBar().addPermanentWidget(
-            QtWidgets.QLabel("Left/Right: Navigate slices, +/-: Adjust range, R: Reset range")
+            QtWidgets.QLabel("Left/Right: Navigate slices, +/-: Adjust range, R: Reset range, F: Force range")
         )
         
         # Set up keyboard shortcuts
@@ -187,6 +194,10 @@ class VolumetricTesterApp(QtWidgets.QMainWindow):
         # Reset display range (R)
         self.shortcut_reset = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_R), self)
         self.shortcut_reset.activated.connect(self._reset_display_range)
+        
+        # Force display range (F)
+        self.shortcut_force = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F), self)
+        self.shortcut_force.activated.connect(self._force_display_range)
     
     def _on_open_file(self):
         """Handle open file action."""
@@ -258,6 +269,11 @@ class VolumetricTesterApp(QtWidgets.QMainWindow):
         bit_depth = info["bit_depth"]
         data_type = "Float" if info["is_float"] else "Integer"
         data_range = f"{info['data_range'][0]:.2f} to {info['data_range'][1]:.2f}"
+        
+        # Add info about original range if different
+        if hasattr(self.volumetric_handler, 'original_data_range') and self.volumetric_handler.use_forced_range:
+            orig_range = self.volumetric_handler.original_data_range
+            data_range += f" (original: {orig_range[0]:.2f} to {orig_range[1]:.2f})"
         
         # Update info label
         info_text = f"File: {filename} | Type: {bit_depth}-bit {data_type} | Range: {data_range} | Slices: {info['total_slices']}"
@@ -387,14 +403,32 @@ class VolumetricTesterApp(QtWidgets.QMainWindow):
         if not self.volumetric_handler:
             return
             
-        # Re-analyze the file to reset range
-        self.volumetric_handler._analyze_file()
+        # Use the new reset method if available
+        if hasattr(self.volumetric_handler, 'reset_display_range'):
+            self.volumetric_handler.reset_display_range()
+        else:
+            # Fallback for backward compatibility
+            self.volumetric_handler._analyze_file()
         
         # Update display
         self._update_info()
         self._load_slice(self.volumetric_handler.current_slice)
         
         self.statusBar().showMessage("Display range reset to original values")
+    
+    def _force_display_range(self):
+        """Force the current display range for all future operations."""
+        if not self.volumetric_handler:
+            return
+            
+        min_val, max_val = self.volumetric_handler.data_range
+        
+        # Only proceed if update_display_range has the force parameter
+        if hasattr(self.volumetric_handler, 'update_display_range') and \
+           len(inspect.signature(self.volumetric_handler.update_display_range).parameters) >= 3:
+            if self.volumetric_handler.update_display_range(min_val, max_val, force=True):
+                self._update_info()
+                self.statusBar().showMessage(f"Display range forced to: {min_val:.2f} to {max_val:.2f}")
 
 
 def main():

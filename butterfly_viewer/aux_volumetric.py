@@ -38,6 +38,8 @@ class VolumetricImageHandler:
         bit_depth (int): Bit depth of the image (8, 16, 32)
         is_float (bool): True if the image contains floating point data
         data_range (tuple): Min and max values in data for normalization
+        original_data_range (tuple): Original min and max values from full data analysis
+        use_forced_range (bool): Whether to use a forced range instead of the detected range
     """
     
     def __init__(self, filepath):
@@ -52,12 +54,14 @@ class VolumetricImageHandler:
         self.bit_depth = 8
         self.is_float = False
         self.data_range = (0, 255)  # Default for 8-bit data
+        self.original_data_range = (0, 255)  # Store original range
+        self.use_forced_range = False  # Flag to indicate if range is forced
         self._cached_slices = {}  # Dictionary to cache loaded slices
         self._analyze_file()
         
     def _analyze_file(self):
         """Analyze the file to determine if it's a multi-page TIFF and count slices.
-        Also determines bit depth and data type.
+        Also determines bit depth and data type, and analyzes all slices to find global min/max.
         """
         try:
             with Image.open(self.filepath) as img:
@@ -69,28 +73,44 @@ class VolumetricImageHandler:
                 if img.mode == 'L':
                     self.bit_depth = 8
                     self.is_float = False
-                    self.data_range = (0, 255)
+                    global_min, global_max = 0, 255
                 elif img.mode == 'I':
                     self.bit_depth = 32
                     self.is_float = False
-                    # Analyze first frame to determine actual range for better normalization
-                    img_array = np.array(img)
-                    self.data_range = (np.min(img_array), np.max(img_array))
+                    # Initialize with extreme values
+                    global_min, global_max = np.iinfo(np.int32).max, np.iinfo(np.int32).min
                 elif img.mode == 'F':
                     self.bit_depth = 32
                     self.is_float = True
-                    # Analyze first frame to determine actual range for better normalization
-                    img_array = np.array(img)
-                    self.data_range = (np.min(img_array), np.max(img_array))
+                    # Initialize with extreme values
+                    global_min, global_max = float('inf'), float('-inf')
                 
-                # Count total slices in the multi-page TIFF
+                # Count total slices and find global min/max across all slices
                 self.total_slices = 0
-                while True:
-                    try:
+                
+                try:
+                    # First pass: count slices and compute global min/max
+                    while True:
+                        # For non-8-bit images, analyze each slice to find min/max
+                        if img.mode != 'L':
+                            img_array = np.array(img)
+                            slice_min = np.min(img_array)
+                            slice_max = np.max(img_array)
+                            
+                            # Update global min/max
+                            global_min = min(global_min, slice_min)
+                            global_max = max(global_max, slice_max)
+                        
                         self.total_slices += 1
                         img.seek(img.tell() + 1)
-                    except EOFError:
-                        break
+                except EOFError:
+                    pass
+                
+                # Store the original data range for all slices
+                if global_min < global_max:
+                    self.original_data_range = (global_min, global_max)
+                    if not self.use_forced_range:
+                        self.data_range = self.original_data_range
                 
                 # Set current slice to middle by default
                 self.current_slice = self.total_slices // 2
@@ -236,23 +256,30 @@ class VolumetricImageHandler:
             "data_range": self.data_range
         }
     
-    def update_display_range(self, min_value=None, max_value=None):
+    def update_display_range(self, min_value=None, max_value=None, force=False):
         """Update the display range for normalization of high bit-depth images.
         
         Args:
             min_value (float, optional): Minimum value for display range. If None, use detected min.
             max_value (float, optional): Maximum value for display range. If None, use detected max.
+            force (bool, optional): If True, force the range even when new data is loaded.
             
         Returns:
             bool: True if successful
         """
-        current_min, current_max = self.data_range
-        
-        if min_value is not None:
-            current_min = min_value
-        
-        if max_value is not None:
-            current_max = max_value
+        if min_value is not None and max_value is not None and force:
+            # Force the range and set the flag
+            self.use_forced_range = True
+            current_min, current_max = min_value, max_value
+        else:
+            # Use the current range as a starting point
+            current_min, current_max = self.data_range
+            
+            if min_value is not None:
+                current_min = min_value
+            
+            if max_value is not None:
+                current_max = max_value
         
         # Update the range if valid
         if current_min < current_max:
@@ -262,3 +289,15 @@ class VolumetricImageHandler:
             return True
         
         return False
+        
+    def reset_display_range(self):
+        """Reset the display range to the original detected values.
+        
+        Returns:
+            bool: True if successful
+        """
+        self.use_forced_range = False
+        self.data_range = self.original_data_range
+        # Clear cache to force re-normalization
+        self._cached_slices = {}
+        return True
