@@ -647,6 +647,24 @@ class SplitViewMdiChild(SplitView):
         # Clear the flag
         self._handling_range_sync = False
 
+    def set_z_slice_controls_visible(self, visible):
+        """Set visibility of z-slice controls.
+        
+        Args:
+            visible (bool): True to show z-slice controls, False to hide them
+        """
+        if hasattr(self, 'z_slice_controls'):
+            self.z_slice_controls.setVisible(visible)
+    
+    def set_data_range_controls_visible(self, visible):
+        """Set visibility of data range controls.
+        
+        Args:
+            visible (bool): True to show data range controls, False to hide them
+        """
+        if hasattr(self, 'data_range_controls'):
+            self.data_range_controls.setVisible(visible)
+            
 
 
 class MultiViewMainWindow(QtWidgets.QMainWindow):
@@ -1106,6 +1124,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.set_window_mouse_rect_visible(self._mdiArea.activeSubWindow(), True)
         self.interface_mdiarea_topleft.setVisible(True)
         self.interface_mdiarea_bottomleft.setVisible(True)
+        
+        # Show z_slice_controls and data_range_controls for all views
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            if isinstance(window.widget(), SplitViewMdiChild):
+                window.widget().set_z_slice_controls_visible(True)
+                window.widget().set_data_range_controls_visible(True)
 
         self.interface_toggle_pushbutton.setToolTip("Hide interface (studio mode)")
 
@@ -1126,6 +1151,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.set_window_mouse_rect_visible(self._mdiArea.activeSubWindow(), False)
         self.interface_mdiarea_topleft.setVisible(False)
         self.interface_mdiarea_bottomleft.setVisible(False)
+        
+        # Hide z_slice_controls and data_range_controls for all views
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            if isinstance(window.widget(), SplitViewMdiChild):
+                window.widget().set_z_slice_controls_visible(False)
+                window.widget().set_data_range_controls_visible(False)
 
         self.interface_toggle_pushbutton.setToolTip("Show interface (H)")
 
