@@ -111,6 +111,7 @@ class SplitViewCreator(QtWidgets.QFrame):
         self.title_label.setStyleSheet("""
             QLabel { 
                 font-size: 10pt;
+                color: white;
                 } 
             """)
         
@@ -127,7 +128,25 @@ class SplitViewCreator(QtWidgets.QFrame):
         self.setLayout(main_layout)
         self.setContentsMargins(2,2,2,2) # As docked on left side
         
-        self.setStyleSheet("QFrame {background: palette(window); border-radius: 0.5em;}")
+        self.setStyleSheet("""
+            QFrame {
+                background-color: rgba(0, 0, 0, 120);
+                border-radius: 5px;
+                padding: 2px;
+            }
+            QLabel {
+                color: white;
+                font-size: 9pt;
+            }
+            QPushButton {
+                min-height: 25px;
+                max-height: 25px;
+                background-color: rgba(60, 60, 60, 180);
+                color: white;
+                border-radius: 3px;
+                border: 1px solid rgba(100, 100, 100, 120);
+            }
+        """)
 
     def setMouseTracking(self, flag):
         """PyQt flag: Override mouse tracking to set mouse tracking for all children widgets."""
@@ -388,6 +407,7 @@ class SlidersOpacitySplitViews(QtWidgets.QFrame):
         self.title_label.setStyleSheet("""
             QLabel { 
                 font-size: 10pt;
+                color: white;
                 } 
             """)
 
@@ -409,7 +429,34 @@ class SlidersOpacitySplitViews(QtWidgets.QFrame):
 
         self.setLayout(layout)
         #self.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Sunken)
-        self.setStyleSheet("QFrame {background: palette(window); border-radius: 0.5em;}")
+        self.setStyleSheet("""
+            QFrame {
+                background-color: rgba(0, 0, 0, 120);
+                border-radius: 5px;
+                padding: 2px;
+            }
+            QLabel {
+                color: white;
+                font-size: 9pt;
+            }
+            QPushButton {
+                min-height: 25px;
+                max-height: 25px;
+                background-color: rgba(60, 60, 60, 180);
+                color: white;
+                border-radius: 3px;
+                border: 1px solid rgba(100, 100, 100, 120);
+            }
+            QSlider {
+                min-height: 20px;
+            }
+            QSpinBox {
+                background-color: rgba(60, 60, 60, 180);
+                color: white;
+                border-radius: 3px;
+                border: 1px solid rgba(100, 100, 100, 120);
+            }
+        """)
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.setContentsMargins(2,2,2,2)
 
@@ -667,6 +714,18 @@ class SplitViewManager(QtWidgets.QWidget):
         self.setLayout(layout)
         self.setContentsMargins(0,0,0,0)
         
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 120);
+                border-radius: 5px;
+                padding: 2px;
+            }
+            QLabel {
+                color: white;
+                font-size: 9pt;
+            }
+        """)
+
     def on_toggle_lock_split_pushbutton(self, boolean):
         """Signal the locking and unlocking of the split and set the text elements of the lock button.
         
