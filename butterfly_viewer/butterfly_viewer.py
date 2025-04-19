@@ -853,6 +853,16 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.open_new_pushbutton.setMouseTracking(True)
         self.open_new_pushbutton.clicked.connect(self.open_multiple)
 
+        self.overlay_toggle_pushbutton = ViewerButton(style="blue-red")
+        self.overlay_toggle_pushbutton.setIcon(":/icons/layers.svg")
+        self.overlay_toggle_pushbutton.setCheckedIcon(":/icons/layers.svg")
+        self.overlay_toggle_pushbutton.setToolTip("Show Overlay Controls")
+        self.overlay_toggle_pushbutton.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.overlay_toggle_pushbutton.setMouseTracking(True)
+        self.overlay_toggle_pushbutton.setCheckable(True)
+        self.overlay_toggle_pushbutton.setChecked(False)
+        self.overlay_toggle_pushbutton.clicked.connect(self.toggle_overlay_panels)
+
         self.buffer_label = ViewerButton(style="invisible")
         self.buffer_label.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.buffer_label.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
@@ -889,16 +899,16 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         layout_mdiarea_bottomright_horizontal = GridLayoutFloatingShadow()
         layout_mdiarea_bottomright_horizontal.addWidget(self.buffer_label, 0, 6)
         layout_mdiarea_bottomright_horizontal.addWidget(self.interface_toggle_pushbutton, 0, 5)
-        layout_mdiarea_bottomright_horizontal.addWidget(self.close_all_pushbutton, 0, 4)
-        layout_mdiarea_bottomright_horizontal.addWidget(self.stopsync_toggle_pushbutton, 0, 3)
-        layout_mdiarea_bottomright_horizontal.addWidget(self.save_view_pushbutton, 0, 2)
-        layout_mdiarea_bottomright_horizontal.addWidget(self.open_new_pushbutton, 0, 1)
+        layout_mdiarea_bottomright_horizontal.addWidget(self.overlay_toggle_pushbutton, 0, 4)
+        layout_mdiarea_bottomright_horizontal.addWidget(self.close_all_pushbutton, 0, 3)
+        layout_mdiarea_bottomright_horizontal.addWidget(self.stopsync_toggle_pushbutton, 0, 2)
+        layout_mdiarea_bottomright_horizontal.addWidget(self.save_view_pushbutton, 0, 1)
+        layout_mdiarea_bottomright_horizontal.addWidget(self.open_new_pushbutton, 0, 0)
         layout_mdiarea_bottomright_horizontal.setContentsMargins(0,0,0,16)
         self.interface_mdiarea_bottomright_horizontal = QtWidgets.QWidget()
         self.interface_mdiarea_bottomright_horizontal.setLayout(layout_mdiarea_bottomright_horizontal)
         tracker_interface_mdiarea_bottomright_horizontal = EventTrackerSplitBypassInterface(self.interface_mdiarea_bottomright_horizontal)
         tracker_interface_mdiarea_bottomright_horizontal.mouse_position_changed.connect(self.update_split)
-
 
         self.loading_grayout_label = QtWidgets.QLabel("Loading...") # Needed to give users feedback when loading views
         self.loading_grayout_label.setWordWrap(True)
@@ -2733,6 +2743,39 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         settings.setValue(SETTING_RECENTFILELIST, files)
 
+    def toggle_overlay_panels(self, boolean=None):
+        """Toggle visibility of Overlay panels.
+        
+        Args:
+            boolean (bool, optional): True to show overlay panels; False to hide. 
+                                     If None, toggle based on current button state.
+        """
+        if boolean is None:
+            boolean = self.overlay_toggle_pushbutton.isChecked()
+        
+        # Ensure the interface is visible to show overlay panels
+        if boolean and not self.is_interface_showing:
+            self.show_interface_on()
+            self.interface_toggle_pushbutton.setChecked(True)
+        
+        # Set visibility of the overlay-related panels
+        self._splitview_creator.setVisible(boolean)
+        self._sliders_opacity_splitviews.setVisible(boolean)
+        self._splitview_manager.setVisible(boolean)
+        
+        # Update button state and tooltip
+        self.overlay_toggle_pushbutton.setChecked(boolean)
+        if boolean:
+            self.overlay_toggle_pushbutton.setToolTip("Hide Overlay Controls")
+        else:
+            self.overlay_toggle_pushbutton.setToolTip("Show Overlay Controls")
+        
+        # If interface is off, ensure overlay panels are also hidden
+        if not self.is_interface_showing:
+            self._splitview_creator.setVisible(False)
+            self._sliders_opacity_splitviews.setVisible(False)
+            self._splitview_manager.setVisible(False)
+
 
 
 def main():
@@ -2751,6 +2794,7 @@ def main():
     # provide QT-specific arguments. Be sure to choose specific names for custom arguments that won't clash with QT.
     parser.add_argument('--hide', help='If provided, hides the interface on start.', action='store_true')
     parser.add_argument('--fullscreen', help='If provided, fullscreens the app on start.', action='store_true')
+    parser.add_argument('--show-overlay-controls', help='If provided, shows the overlay controls on start.', action='store_true')
     parser.add_argument('--paths', nargs="*", help='If provided, automatically starts with individual (side by side) image windows supplied by these paths.')
     parser.add_argument('--overlay_path_main_topleft', help='If provided, automatically starts with the main image (top left) supplied by this path.')
     parser.add_argument('--overlay_path_topright', help='If provided, automatically starts with the top right image supplied by this path.')
@@ -2794,6 +2838,11 @@ def main():
         mainWin.on_create_splitview()
 
     # Settings:
+    # 기본적으로 Overlay 관련 컨트롤 숨기기 (명령줄 매개변수로 재정의 가능)
+    if not args.show_overlay_controls:
+        # Sliding overlay creator, Overlay 컨트롤, Lock overlay 패널을 숨깁니다
+        mainWin.show_interface_off()
+    
     if args.hide:
         mainWin.show_interface_off()
     if args.fullscreen:

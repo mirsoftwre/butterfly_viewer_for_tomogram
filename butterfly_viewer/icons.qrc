@@ -25,5 +25,6 @@
         <file alias="refresh-cancelled.svg">icons/siemens/refresh-cancelled.svg</file>
         <file alias="split-horizontally.svg">icons/siemens/split-horizontally.svg</file>
         <file alias="split-vertically.svg">icons/siemens/split-vertically.svg</file>
+        <file alias="layers.svg">icons/siemens/layers.svg</file>
     </qresource>
 </RCC>
