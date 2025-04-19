@@ -84,7 +84,7 @@ class SplitViewMdiChild(SplitView):
 
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         self._isUntitled = True
-
+        
         self.toggle_lock_split_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence("Shift+X"), self)
         self.toggle_lock_split_shortcut.activated.connect(self.toggle_lock_split)
 
@@ -227,9 +227,7 @@ class SplitViewMdiChild(SplitView):
         pixmap = self.volumetric_handler.get_slice_pixmap(slice_index)
         if pixmap:
             # Update pixmap in view
-            self._scene_main_topleft.clear()
-            self._pixmap_item_main_topleft = self._scene_main_topleft.addPixmap(pixmap)
-            self._pixmap_main_topleft = pixmap
+            self.pixmap_main_topleft = pixmap
             
             # Update current slice
             self.current_slice = slice_index
@@ -1380,7 +1378,10 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         
             # Use mouse position to grab scene coordinates (activeMdiChild?)
             active_view = self.activeMdiChild._view_main_topleft
-            point_of_mouse_on_scene = active_view.mapToScene(point_of_mouse_on_viewport.x(), point_of_mouse_on_viewport.y())
+            # convert to int
+            mapX = int(point_of_mouse_on_viewport.x());
+            mapY = int(point_of_mouse_on_viewport.y());
+            point_of_mouse_on_scene = active_view.mapToScene(mapX, mapY)
 
             if not self._label_mouse.isVisible():
                 self._label_mouse.show()

@@ -868,6 +868,7 @@ class SplitView(QtWidgets.QFrame):
         mouse_rect_pos_origin.setY(math.floor(mouse_rect_pos_origin.y() - self.mouse_rect_height + 1))
         
         self.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin.x(), mouse_rect_pos_origin.y())
+        
     
     # Signals
     signal_display_loading_grayout = QtCore.pyqtSignal(bool, str, float)
