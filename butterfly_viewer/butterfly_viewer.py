@@ -71,6 +71,8 @@ class SplitViewMdiChild(SplitView):
     shortcut_shift_x_was_activated = QtCore.pyqtSignal()
     # Signal when z-slice changed in volumetric data
     slice_changed = QtCore.pyqtSignal(int)
+    # Signal when display range changed in volumetric data
+    display_range_changed = QtCore.pyqtSignal(float, float)
 
     def __init__(self, pixmap, filename_main_topleft, name, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth):
         super().__init__(pixmap, filename_main_topleft, name, pixmap_topright, pixmap_bottomleft, pixmap_bottomright, transform_mode_smooth)
@@ -84,6 +86,7 @@ class SplitViewMdiChild(SplitView):
         self._sync_this_zoom = True
         self._sync_this_pan = True
         self._sync_this_slice = True
+        self._sync_this_range = True
         
         # Volumetric data handling
         self.is_volumetric = False
@@ -91,6 +94,7 @@ class SplitViewMdiChild(SplitView):
         self.current_slice = 0
         self.total_slices = 0
         self._handling_slice_sync = False  # Flag to prevent infinite recursion
+        self._handling_range_sync = False  # Flag to prevent infinite recursion for display range
         
         # Create Z-slice controls (hidden by default)
         self.z_slice_controls = QtWidgets.QWidget(self)
@@ -163,15 +167,106 @@ class SplitViewMdiChild(SplitView):
         
         self.shortcut_prev_slice = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Up), self)
         self.shortcut_prev_slice.activated.connect(self.goto_previous_slice)
+        
+        # Create data range controls (hidden by default)
+        self.data_range_controls = QtWidgets.QWidget(self)
+        self.data_range_controls.setVisible(False)
+        data_range_layout = QtWidgets.QVBoxLayout(self.data_range_controls)
+        data_range_layout.setContentsMargins(5, 5, 5, 5)
+        data_range_layout.setSpacing(4)
+        
+        # Title label
+        self.data_range_title = QtWidgets.QLabel("Data Range", self.data_range_controls)
+        self.data_range_title.setAlignment(QtCore.Qt.AlignCenter)
+        data_range_layout.addWidget(self.data_range_title)
+        
+        # Original data range label
+        self.original_range_label = QtWidgets.QLabel("Original: [0, 255]", self.data_range_controls)
+        self.original_range_label.setAlignment(QtCore.Qt.AlignCenter)
+        data_range_layout.addWidget(self.original_range_label)
+        
+        # Current range label
+        self.current_range_label = QtWidgets.QLabel("Current: [0, 255]", self.data_range_controls)
+        self.current_range_label.setAlignment(QtCore.Qt.AlignCenter)
+        data_range_layout.addWidget(self.current_range_label)
+        
+        # Min value slider and label
+        min_layout = QtWidgets.QHBoxLayout()
+        self.min_label = QtWidgets.QLabel("Min:", self.data_range_controls)
+        min_layout.addWidget(self.min_label)
+        
+        self.min_value_label = QtWidgets.QLabel("0", self.data_range_controls)
+        self.min_value_label.setMinimumWidth(40)
+        min_layout.addWidget(self.min_value_label)
+        data_range_layout.addLayout(min_layout)
+        
+        self.min_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self.data_range_controls)
+        self.min_slider.setToolTip("Adjust minimum value")
+        self.min_slider.valueChanged.connect(self.on_min_slider_changed)
+        data_range_layout.addWidget(self.min_slider)
+        
+        # Max value slider and label
+        max_layout = QtWidgets.QHBoxLayout()
+        self.max_label = QtWidgets.QLabel("Max:", self.data_range_controls)
+        max_layout.addWidget(self.max_label)
+        
+        self.max_value_label = QtWidgets.QLabel("255", self.data_range_controls)
+        self.max_value_label.setMinimumWidth(40)
+        max_layout.addWidget(self.max_value_label)
+        data_range_layout.addLayout(max_layout)
+        
+        self.max_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self.data_range_controls)
+        self.max_slider.setToolTip("Adjust maximum value")
+        self.max_slider.valueChanged.connect(self.on_max_slider_changed)
+        data_range_layout.addWidget(self.max_slider)
+        
+        # Reset button
+        self.reset_range_button = QtWidgets.QPushButton("Reset Range", self.data_range_controls)
+        self.reset_range_button.clicked.connect(self.reset_display_range)
+        data_range_layout.addWidget(self.reset_range_button)
+        
+        # Apply the same stylesheet as slice controls
+        self.data_range_controls.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 120);
+                border-radius: 5px;
+                padding: 2px;
+            }
+            QPushButton {
+                min-height: 25px;
+                max-height: 25px;
+                background-color: rgba(60, 60, 60, 180);
+                color: white;
+                border-radius: 3px;
+                border: 1px solid rgba(100, 100, 100, 120);
+            }
+            QLabel {
+                color: white;
+                font-size: 9pt;
+            }
+            QSlider {
+                min-height: 20px;
+            }
+        """)
+        
+        # Position at bottom of the view
+        self.data_range_controls.setFixedWidth(200)
+        self.data_range_controls.setFixedHeight(220)
     
     def resizeEvent(self, event):
-        """Handle resize events to reposition the Z-slice controls."""
+        """Handle resize events to reposition the Z-slice controls and data range controls."""
         super().resizeEvent(event)
         if hasattr(self, 'z_slice_controls'):
             # Position the z-slice controls at the middle-left, away from top and bottom controls
             middle_y = (self.height() - self.z_slice_controls.height()) // 2
             # Ensure it doesn't overlap with topleft or bottomleft controls
             self.z_slice_controls.move(10, middle_y)
+            
+        if hasattr(self, 'data_range_controls'):
+            # Position the data range controls at the bottom-center
+            bottom_y = self.height() - self.data_range_controls.height() - 10
+            center_x = (self.width() - self.data_range_controls.width()) // 2
+            self.data_range_controls.move(center_x, bottom_y)
     
     def setup_volumetric_mode(self, volumetric_handler, current_slice):
         """Set up the widget to handle volumetric data.
@@ -193,15 +288,193 @@ class SplitViewMdiChild(SplitView):
         # Update label
         self.update_slice_label()
         
+        # Configure data range controls
+        self.setup_data_range_controls()
+        
         # Show controls and position them
         self.z_slice_controls.setVisible(True)
-        # Position at the middle-left of the view
+        self.data_range_controls.setVisible(True)
+        
+        # Position at the middle-left of the view for slice controls
         middle_y = (self.height() - self.z_slice_controls.height()) // 2
         self.z_slice_controls.move(10, middle_y)
+        
+        # Position at the bottom-center for data range controls
+        bottom_y = self.height() - self.data_range_controls.height() - 10
+        center_x = (self.width() - self.data_range_controls.width()) // 2
+        self.data_range_controls.move(center_x, bottom_y)
     
-    def update_slice_label(self):
-        """Update the slice label with current slice information."""
-        self.slice_label.setText(f"{self.current_slice + 1}/{self.total_slices}")
+    def setup_data_range_controls(self):
+        """Configure data range controls based on the current volumetric handler."""
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Get original data range
+        orig_min, orig_max = self.volumetric_handler.original_data_range
+        curr_min, curr_max = self.volumetric_handler.data_range
+        
+        # Update labels with actual values
+        self.original_range_label.setText(f"Original: [{orig_min:.1f}, {orig_max:.1f}]")
+        self.current_range_label.setText(f"Current: [{curr_min:.1f}, {curr_max:.1f}]")
+        
+        # Configure sliders
+        # Use a precision factor for float values
+        precision = 100 if self.volumetric_handler.is_float else 1
+        
+        # Set slider ranges based on original min/max
+        range_span = orig_max - orig_min
+        self.min_slider.setMinimum(int(orig_min * precision))
+        self.min_slider.setMaximum(int(orig_max * precision))
+        self.min_slider.setValue(int(curr_min * precision))
+        
+        self.max_slider.setMinimum(int(orig_min * precision))
+        self.max_slider.setMaximum(int(orig_max * precision))
+        self.max_slider.setValue(int(curr_max * precision))
+        
+        # Update value labels
+        self.min_value_label.setText(f"{curr_min:.1f}")
+        self.max_value_label.setText(f"{curr_max:.1f}")
+        
+    def on_min_slider_changed(self, value):
+        """Handle changes to the minimum value slider.
+        
+        Args:
+            value: New slider value
+        """
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Convert slider value back to actual value
+        precision = 100 if self.volumetric_handler.is_float else 1
+        min_value = value / precision
+        
+        # Ensure min value doesn't exceed max value
+        _, curr_max = self.volumetric_handler.data_range
+        if min_value >= curr_max:
+            min_value = curr_max - (1/precision)  # Keep at least a small gap
+            self.min_slider.blockSignals(True)
+            self.min_slider.setValue(int(min_value * precision))
+            self.min_slider.blockSignals(False)
+            
+        # Update display and label
+        self.min_value_label.setText(f"{min_value:.1f}")
+        self.update_display_range(min_value=min_value)
+        
+    def on_max_slider_changed(self, value):
+        """Handle changes to the maximum value slider.
+        
+        Args:
+            value: New slider value
+        """
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Convert slider value back to actual value
+        precision = 100 if self.volumetric_handler.is_float else 1
+        max_value = value / precision
+        
+        # Ensure max value doesn't fall below min value
+        curr_min, _ = self.volumetric_handler.data_range
+        if max_value <= curr_min:
+            max_value = curr_min + (1/precision)  # Keep at least a small gap
+            self.max_slider.blockSignals(True)
+            self.max_slider.setValue(int(max_value * precision))
+            self.max_slider.blockSignals(False)
+            
+        # Update display and label
+        self.max_value_label.setText(f"{max_value:.1f}")
+        self.update_display_range(max_value=max_value)
+        
+    def update_display_range(self, min_value=None, max_value=None):
+        """Update the display range in the volumetric handler and refresh the view.
+        
+        Args:
+            min_value: New minimum value (or None to keep current)
+            max_value: New maximum value (or None to keep current)
+        """
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Prevent recursion when syncing display range
+        if self._handling_range_sync:
+            return
+            
+        # Update the display range
+        updated = self.volumetric_handler.update_display_range(min_value, max_value)
+        
+        if updated:
+            # Refresh the current range label
+            curr_min, curr_max = self.volumetric_handler.data_range
+            self.current_range_label.setText(f"Current: [{curr_min:.1f}, {curr_max:.1f}]")
+            
+            # Emit signal for synchronization
+            self.display_range_changed.emit(curr_min, curr_max)
+            
+            # Reload the current slice to apply the new range
+            self.load_slice(self.current_slice)
+            
+            # If range synchronization is enabled, synchronize all other windows
+            window = self.window()
+            if isinstance(window, MultiViewMainWindow) and self.sync_this_range:
+                self._handling_range_sync = True
+                window.synchDisplayRange(self, curr_min, curr_max)
+                self._handling_range_sync = False
+        
+    def reset_display_range(self):
+        """Reset the display range to the original detected values."""
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Prevent recursion when syncing display range
+        if self._handling_range_sync:
+            return
+            
+        # Reset the display range
+        reset = self.volumetric_handler.reset_display_range()
+        
+        if reset:
+            # Update the sliders to match the original range
+            orig_min, orig_max = self.volumetric_handler.original_data_range
+            precision = 100 if self.volumetric_handler.is_float else 1
+            
+            self.min_slider.blockSignals(True)
+            self.min_slider.setValue(int(orig_min * precision))
+            self.min_slider.blockSignals(False)
+            
+            self.max_slider.blockSignals(True)
+            self.max_slider.setValue(int(orig_max * precision))
+            self.max_slider.blockSignals(False)
+            
+            # Update the labels
+            self.min_value_label.setText(f"{orig_min:.1f}")
+            self.max_value_label.setText(f"{orig_max:.1f}")
+            self.current_range_label.setText(f"Current: [{orig_min:.1f}, {orig_max:.1f}]")
+            
+            # Emit signal for synchronization
+            self.display_range_changed.emit(orig_min, orig_max)
+            
+            # Reload the current slice to apply the reset range
+            self.load_slice(self.current_slice)
+            
+            # If range synchronization is enabled, synchronize all other windows
+            window = self.window()
+            if isinstance(window, MultiViewMainWindow) and self.sync_this_range:
+                self._handling_range_sync = True
+                window.synchDisplayRange(self, orig_min, orig_max)
+                self._handling_range_sync = False
+    
+    def set_slice_controls_visible(self, visible):
+        """Set visibility of slice controls.
+        
+        Args:
+            visible (bool): True to show slice controls, False to hide them
+        """
+        if hasattr(self, 'z_slice_controls'):
+            self.z_slice_controls.setVisible(visible)
+            
+        # Also handle data range controls
+        if hasattr(self, 'data_range_controls') and self.is_volumetric:
+            self.data_range_controls.setVisible(visible)
     
     def load_slice(self, slice_index):
         """Load a specific slice of volumetric data.
@@ -264,15 +537,6 @@ class SplitViewMdiChild(SplitView):
         if self.is_volumetric and value != self.current_slice:
             self.load_slice(value)
             
-    def set_slice_controls_visible(self, visible):
-        """Set visibility of slice controls.
-        
-        Args:
-            visible (bool): True to show slice controls, False to hide them
-        """
-        if hasattr(self, 'z_slice_controls'):
-            self.z_slice_controls.setVisible(visible)
-    
     @property
     def sync_this_zoom(self):
         """bool: Setting of whether to sync this by zoom (or not)."""
@@ -302,6 +566,16 @@ class SplitViewMdiChild(SplitView):
     def sync_this_slice(self, bool: bool):
         """bool: Set whether to sync this by slice (or not)."""
         self._sync_this_slice = bool
+        
+    @property
+    def sync_this_range(self):
+        """bool: Setting of whether to sync this by display range (or not)."""
+        return self._sync_this_range
+    
+    @sync_this_range.setter
+    def sync_this_range(self, bool: bool):
+        """bool: Set whether to sync this by display range (or not)."""
+        self._sync_this_range = bool
 
     # Control the split of the sliding overlay
 
@@ -327,6 +601,51 @@ class SplitViewMdiChild(SplitView):
     def enterEvent(self, event):
         """Pass along enter event to parent method."""
         super().enterEvent(event)
+
+    def update_slice_label(self):
+        """Update the slice label with current slice information."""
+        self.slice_label.setText(f"{self.current_slice + 1}/{self.total_slices}")
+
+    def apply_display_range_sync(self, min_value, max_value):
+        """Apply display range from synchronization.
+        
+        Args:
+            min_value: Minimum value for display range
+            max_value: Maximum value for display range
+        """
+        if not self.is_volumetric or not self.volumetric_handler:
+            return
+            
+        # Set the flag to prevent recursion
+        self._handling_range_sync = True
+        
+        # Update sliders
+        precision = 100 if self.volumetric_handler.is_float else 1
+        
+        self.min_slider.blockSignals(True)
+        self.min_slider.setValue(int(min_value * precision))
+        self.min_slider.blockSignals(False)
+        
+        self.max_slider.blockSignals(True)
+        self.max_slider.setValue(int(max_value * precision))
+        self.max_slider.blockSignals(False)
+        
+        # Update the labels
+        self.min_value_label.setText(f"{min_value:.1f}")
+        self.max_value_label.setText(f"{max_value:.1f}")
+        
+        # Update the display range directly
+        updated = self.volumetric_handler.update_display_range(min_value, max_value)
+        
+        if updated:
+            # Refresh the current range label
+            self.current_range_label.setText(f"Current: [{min_value:.1f}, {max_value:.1f}]")
+            
+            # Reload the current slice to apply the updated range
+            self.load_slice(self.current_slice)
+        
+        # Clear the flag
+        self._handling_range_sync = False
 
 
 
@@ -1324,6 +1643,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         child.was_set_global_transform_mode.connect(self.set_all_window_transform_mode_smooth)
         child.was_set_scene_background_color.connect(self.set_all_background_color)
         child.was_set_sync_zoom_by.connect(self.set_all_sync_zoom_by)
+        child.display_range_changed.connect(lambda min_val, max_val: self.synchDisplayRange(child, min_val, max_val))
 
         return child
 
@@ -2056,6 +2376,27 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                             
                             # Add black pixmap
                             toViewer._pixmap_item_main_topleft = toViewer._scene_main_topleft.addPixmap(black_pixmap)
+
+    def synchDisplayRange(self, fromViewer, min_value, max_value):
+        """Synchronize display range with all other image windows (except the one that caused the event).
+        
+        Args:
+            fromViewer (SplitViewMdiChild): The viewer/subwindow which triggered the display range change.
+            min_value (float): The minimum value of the display range.
+            max_value (float): The maximum value of the display range.
+        """
+        if not fromViewer or not fromViewer.is_volumetric:
+            return
+
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            toViewer = window.widget()
+            if (toViewer and isinstance(toViewer, SplitViewMdiChild) and 
+                toViewer != fromViewer and toViewer.sync_this_range):
+                
+                if toViewer.is_volumetric:
+                    # Apply the display range to other volumetric viewers
+                    toViewer.apply_display_range_sync(min_value, max_value)
 
     def refreshPan(self):
         if self.activeMdiChild:
