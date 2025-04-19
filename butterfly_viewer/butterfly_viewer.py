@@ -41,18 +41,10 @@ os.environ["QT_ENABLE_HIGHDPI_SCALING"]   = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 os.environ["QT_SCALE_FACTOR"]             = "1"
 
-sip.setapi('QDate', 2)
-sip.setapi('QTime', 2)
-sip.setapi('QDateTime', 2)
-sip.setapi('QUrl', 2)
-sip.setapi('QTextStream', 2)
-sip.setapi('QVariant', 2)
-sip.setapi('QString', 2)
-
-COMPANY = "Butterfly Apps"
-DOMAIN = "https://github.com/olive-groves/butterfly_viewer/"
-APPNAME = "Butterfly Viewer"
-VERSION = "1.1"
+COMPANY = "Mir Software"
+DOMAIN = "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
+APPNAME = "Butterfly Viewer for Volumetric Images"
+VERSION = "1.0"
 
 SETTING_RECENTFILELIST = "recentfilelist"
 SETTING_FILEOPEN = "fileOpenDialog"
@@ -1061,11 +1053,16 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     def show_about(self):
         """Show about box."""
         sp = "<br>"
-        title = "Butterfly Viewer"
-        text = "Butterfly Viewer"
-        text = text + sp + "Lars Maxfield"
+        title = "Butterfly Viewer for Volumetric Images"
+        text = "Butterfly Viewer for Volumetric Images"
+        text = text + sp + "Taehong Kim"
         text = text + sp + "Version: " + VERSION
+        text = text + sp + "Source: <a href='https://github.com/mirsoftwre/butterfly_viewer_for_tomogram'>github.com/mirsoftwre/butterfly_viewer_for_tomogram</a>"
         text = text + sp + "License: <a href='https://www.gnu.org/licenses/gpl-3.0.en.html'>GNU GPL v3</a> or later"
+        text = text + sp
+        text = text + sp + "Original Software: Butterfly Viewer"
+        text = text + sp + "Original Author: Lars Maxfield"
+        text = text + sp + "Based on version: 1.1"
         text = text + sp + "Source: <a href='https://github.com/olive-groves/butterfly_viewer'>github.com/olive-groves/butterfly_viewer</a>"
         text = text + sp + "Tutorial: <a href='https://olive-groves.github.io/butterfly_viewer'>olive-groves.github.io/butterfly_viewer</a>"
         box = QtWidgets.QMessageBox.about(self, title, text)
