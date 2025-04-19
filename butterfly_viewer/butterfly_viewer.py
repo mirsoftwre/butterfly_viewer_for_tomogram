@@ -47,6 +47,7 @@ APPNAME = "Butterfly Viewer for Volumetric Images"
 VERSION = "1.0"
 
 SETTING_RECENTFILELIST = "recentfilelist"
+SETTING_LAST_DIRECTORY = "lastdirectory"
 SETTING_FILEOPEN = "fileOpenDialog"
 SETTING_SCROLLBARS = "scrollbars"
 SETTING_STATUSBAR = "statusbar"
@@ -1086,6 +1087,11 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         transform_mode_smooth = self.is_global_transform_mode_smooth
         
+        # Save the directory to registry for future use
+        settings = QtCore.QSettings(COMPANY, APPNAME)
+        dir_path = os.path.dirname(filename_main_topleft)
+        settings.setValue(SETTING_LAST_DIRECTORY, dir_path)
+        
         # Check if the file is a volumetric image
         try:
             # Import locally to avoid circular imports
@@ -2048,7 +2054,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     def open(self):
         """Handle the open action."""
         fileDialog = QtWidgets.QFileDialog(self)
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
         fileDialog.setNameFilters([
             "Common image files (*.jpeg *.jpg  *.png *.tiff *.tif *.bmp *.gif *.webp *.svg)",
             "JPEG image files (*.jpeg *.jpg)", 
@@ -2056,21 +2062,38 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             "TIFF image files (*.tiff *.tif)",
             "BMP (*.bmp)",
             "All files (*)",])
-        if not settings.contains(SETTING_FILEOPEN + "/state"):
+        
+        # Use the last directory if available in registry
+        if settings.contains(SETTING_LAST_DIRECTORY):
+            last_dir = settings.value(SETTING_LAST_DIRECTORY)
+            fileDialog.setDirectory(last_dir)
+        elif not settings.contains(SETTING_FILEOPEN + "/state"):
             fileDialog.setDirectory(".")
         else:
             self.restoreDialogState(fileDialog, SETTING_FILEOPEN)
+            
         fileDialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
         if not fileDialog.exec_():
             return
         self.saveDialogState(fileDialog, SETTING_FILEOPEN)
 
         filename_main_topleft = fileDialog.selectedFiles()[0]
+        
+        # Save the directory path to registry
+        dir_path = os.path.dirname(filename_main_topleft)
+        settings.setValue(SETTING_LAST_DIRECTORY, dir_path)
+        
         self.loadFile(filename_main_topleft, None, None, None)
 
     def open_multiple(self):
         """Handle the open multiple action."""
-        last_accessed_fullpath = self._last_accessed_fullpath
+        # Get the last directory from the registry if available
+        settings = QtCore.QSettings(COMPANY, APPNAME)
+        start_dir = settings.value(SETTING_LAST_DIRECTORY, "")
+        
+        if not start_dir and self._last_accessed_fullpath:
+            start_dir = self._last_accessed_fullpath
+            
         filters = "\
             Common image files (*.jpeg *.jpg  *.png *.tiff *.tif *.bmp *.gif *.webp *.svg);;\
             JPEG image files (*.jpeg *.jpg);;\
@@ -2078,10 +2101,15 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             TIFF image files (*.tiff *.tif);;\
             BMP (*.bmp);;\
             All files (*)"
-        fullpaths, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Select image(s) to open", last_accessed_fullpath, filters)
+        fullpaths, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Select image(s) to open", start_dir, filters)
 
-        for fullpath in fullpaths:
-            self.loadFile(fullpath, None, None, None)
+        if fullpaths:
+            # Save the directory path to registry
+            dir_path = os.path.dirname(fullpaths[0])
+            settings.setValue(SETTING_LAST_DIRECTORY, dir_path)
+            
+            for fullpath in fullpaths:
+                self.loadFile(fullpath, None, None, None)
 
 
 
@@ -2188,14 +2216,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     def saveDialogState(self, dialog, groupName):
         """Save dialog state, position & size.
 
-        :param |QDialog| dialog: dialog to save state of
         :param str groupName: |QSettings| group name"""
         assert isinstance(dialog, QtWidgets.QDialog)
 
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
         settings.beginGroup(groupName)
 
-        settings.setValue('state', dialog.saveState())
+        settings.setValue('state', dialog.saveState() if hasattr(dialog, "saveState") else QtCore.QByteArray())
         settings.setValue('geometry', dialog.saveGeometry())
         settings.setValue('filter', dialog.selectedNameFilter())
 
@@ -2207,7 +2234,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         :param str groupName: |QSettings| group name"""
         assert isinstance(dialog, QtWidgets.QDialog)
 
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
         settings.beginGroup(groupName)
 
         dialog.restoreState(settings.value('state'))
@@ -2218,7 +2245,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
     def writeSettings(self):
         """Write application settings."""
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
         settings.setValue('pos', self.pos())
         settings.setValue('size', self.size())
         settings.setValue('windowgeometry', self.saveGeometry())
@@ -2240,7 +2267,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         statusbar_always_checked_off_at_startup = True
         sync_always_checked_on_at_startup = True
 
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
 
         pos = settings.value('pos', QtCore.QPoint(100, 100))
         size = settings.value('size', QtCore.QSize(1100, 600))
@@ -2280,7 +2307,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         :param str filename_main_topleft: filename_main_topleft to add or remove from recent file
                              list
         :param bool delete: if True then filename_main_topleft removed, otherwise added"""
-        settings = QtCore.QSettings()
+        settings = QtCore.QSettings(COMPANY, APPNAME)
         
         try:
             files = list(settings.value(SETTING_RECENTFILELIST, []))
