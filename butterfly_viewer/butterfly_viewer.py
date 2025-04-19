@@ -263,6 +263,15 @@ class SplitViewMdiChild(SplitView):
         """
         if self.is_volumetric and value != self.current_slice:
             self.load_slice(value)
+            
+    def set_slice_controls_visible(self, visible):
+        """Set visibility of slice controls.
+        
+        Args:
+            visible (bool): True to show slice controls, False to hide them
+        """
+        if hasattr(self, 'z_slice_controls'):
+            self.z_slice_controls.setVisible(visible)
     
     @property
     def sync_this_zoom(self):
@@ -641,9 +650,22 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         if not interface_was_already_set_hidden:
             self.show_interface_off()
 
+        # Hide slice controls in all subwindows
+        slice_controls_states = {}
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            child = window.widget()
+            if hasattr(child, 'is_volumetric') and child.is_volumetric:
+                slice_controls_states[window] = child.z_slice_controls.isVisible()
+                child.set_slice_controls_visible(False)
+
         pixmap = self._mdiArea.grab()
         clipboard = QtWidgets.QApplication.clipboard()
         clipboard.setPixmap(pixmap)
+
+        # Restore slice controls visibility
+        for window, was_visible in slice_controls_states.items():
+            window.widget().set_slice_controls_visible(was_visible)
 
         if not interface_was_already_set_hidden:
             self.show_interface_on()
@@ -670,7 +692,20 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         if not interface_was_already_set_hidden:
             self.show_interface_off()
 
+        # Hide slice controls in all subwindows
+        slice_controls_states = {}
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            child = window.widget()
+            if hasattr(child, 'is_volumetric') and child.is_volumetric:
+                slice_controls_states[window] = child.z_slice_controls.isVisible()
+                child.set_slice_controls_visible(False)
+
         pixmap = self._mdiArea.grab()
+
+        # Restore slice controls visibility
+        for window, was_visible in slice_controls_states.items():
+            window.widget().set_slice_controls_visible(was_visible)
 
         date_and_time = datetime.now().strftime('%Y-%m-%d %H%M%S') # Sets the default filename with date and time 
         filename = "Viewer screenshot " + date_and_time + ".png"
