@@ -90,12 +90,14 @@ class SplitViewMdiChild(SplitView):
 
         self._sync_this_zoom = True
         self._sync_this_pan = True
+        self._sync_this_slice = True
         
         # Volumetric data handling
         self.is_volumetric = False
         self.volumetric_handler = None
         self.current_slice = 0
         self.total_slices = 0
+        self._handling_slice_sync = False  # Flag to prevent infinite recursion
         
         # Create Z-slice controls (hidden by default)
         self.z_slice_controls = QtWidgets.QWidget(self)
@@ -217,6 +219,10 @@ class SplitViewMdiChild(SplitView):
         if not self.is_volumetric or not self.volumetric_handler:
             return
         
+        # Prevent recursion when syncing slices
+        if self._handling_slice_sync:
+            return
+            
         # Ensure valid slice index
         if slice_index < 0:
             slice_index = 0
@@ -236,8 +242,15 @@ class SplitViewMdiChild(SplitView):
             self.slice_slider.setValue(slice_index)
             self.update_slice_label()
             
-            # Emit signal
+            # Emit signal for UI updates
             self.slice_changed.emit(slice_index)
+            
+            # If slice synchronization is enabled, synchronize all other windows
+            window = self.window()
+            if isinstance(window, MultiViewMainWindow) and self._sync_this_slice:
+                self._handling_slice_sync = True
+                window.synchSlice(self)
+                self._handling_slice_sync = False
     
     def goto_next_slice(self):
         """Navigate to the next slice in volumetric data."""
@@ -277,6 +290,16 @@ class SplitViewMdiChild(SplitView):
     def sync_this_pan(self, bool: bool):
         """bool: Set whether to sync this by pan (or not)."""
         self._sync_this_pan = bool
+        
+    @property
+    def sync_this_slice(self):
+        """bool: Setting of whether to sync this by slice (or not)."""
+        return self._sync_this_slice
+    
+    @sync_this_slice.setter
+    def sync_this_slice(self, bool: bool):
+        """bool: Set whether to sync this by slice (or not)."""
+        self._sync_this_slice = bool
 
     # Control the split of the sliding overlay
 
@@ -1926,17 +1949,18 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
     def synchZoom(self, fromViewer):
         """Synch zoom of all subwindowws to the same as *fromViewer*.
-
+        
         :param fromViewer: :class:`SplitViewMdiChild` that initiated synching"""
         if not fromViewer:
             return
+
         newZoomFactor = fromViewer.zoomFactor
 
         sync_by = self.sync_zoom_by
 
         sender_dimension = determineSyncSenderDimension(fromViewer.imageWidth,
-                                                        fromViewer.imageHeight,
-                                                        sync_by)
+                                                       fromViewer.imageHeight,
+                                                       sync_by)
 
         changedWindow = fromViewer.parent()
         windows = self._mdiArea.subWindowList()
@@ -1945,13 +1969,55 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 receiver = window.widget()
                 if receiver.sync_this_zoom:
                     adjustment_factor = determineSyncAdjustmentFactor(sync_by,
-                                                                      sender_dimension,
-                                                                      receiver.imageWidth,
-                                                                      receiver.imageHeight)
+                                                                     sender_dimension,
+                                                                     receiver.imageWidth,
+                                                                     receiver.imageHeight)
 
                     receiver.zoomFactor = newZoomFactor*adjustment_factor
                     receiver.resize_scene()
         self.refreshPan()
+        
+    def synchSlice(self, fromViewer):
+        """Synchronize slice with all other image windows (except the one that caused the event).
+        
+        Args:
+            fromViewer (SplitViewMdiChild): The viewer/subwindow which triggered the slice change.
+        """
+        if not fromViewer or not fromViewer.is_volumetric:
+            return
+
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            toViewer = window.widget()
+            if (toViewer and isinstance(toViewer, SplitViewMdiChild) and 
+                toViewer != fromViewer and toViewer.sync_this_slice):
+                
+                if toViewer.is_volumetric:
+                    # If target has volumetric data and the slice exists, load it
+                    if fromViewer.current_slice < toViewer.total_slices:
+                        toViewer.load_slice(fromViewer.current_slice)
+                    else:
+                        # If the target doesn't have this slice, load the last available slice
+                        toViewer.load_slice(toViewer.total_slices - 1)
+                else:
+                    # If target is not volumetric but fromViewer is,
+                    # create a black pixmap of the same size as the current pixmap
+                    if hasattr(toViewer, '_pixmapItem_main_topleft') and toViewer._pixmapItem_main_topleft:
+                        current_pixmap = toViewer._pixmapItem_main_topleft.pixmap()
+                        if current_pixmap and not current_pixmap.isNull():
+                            width = current_pixmap.width()
+                            height = current_pixmap.height()
+                            
+                            # Create a black pixmap of the same size
+                            black_pixmap = QtGui.QPixmap(width, height)
+                            black_pixmap.fill(QtCore.Qt.black)
+                            
+                            # Remove existing pixmap item
+                            if hasattr(toViewer, '_pixmap_item_main_topleft') and toViewer._pixmap_item_main_topleft:
+                                toViewer._scene_main_topleft.removeItem(toViewer._pixmap_item_main_topleft)
+                            
+                            # Add black pixmap
+                            toViewer._pixmap_item_main_topleft = toViewer._scene_main_topleft.addPixmap(black_pixmap)
 
     def refreshPan(self):
         if self.activeMdiChild:
