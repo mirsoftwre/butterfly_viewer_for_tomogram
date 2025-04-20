@@ -864,12 +864,75 @@ class SplitView(QtWidgets.QFrame):
             point_of_mouse_on_widget = pos
     
         mouse_rect_pos_origin = self._view_main_topleft.mapToScene(point_of_mouse_on_widget.x(),point_of_mouse_on_widget.y())
+        scene_x = int(mouse_rect_pos_origin.x())
+        scene_y = int(mouse_rect_pos_origin.y())
+        
         mouse_rect_pos_origin.setX(math.floor(mouse_rect_pos_origin.x() - self.mouse_rect_width + 1))
         mouse_rect_pos_origin.setY(math.floor(mouse_rect_pos_origin.y() - self.mouse_rect_height + 1))
         
         self.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin.x(), mouse_rect_pos_origin.y())
         
-    
+        # 픽셀 값 가져오기 및 텍스트 업데이트
+        pixel_value = "N/A"
+        
+        # SplitViewMdiChild에서 파생된 클래스인 경우 볼륨 데이터 확인
+        if hasattr(self, 'is_volumetric') and self.is_volumetric:
+            volumetric_handler = getattr(self, 'volumetric_handler', None)
+            if volumetric_handler:
+                int_scene_x = int(scene_x)
+                int_scene_y = int(scene_y)
+                current_slice = getattr(self, 'current_slice', 0)
+                
+                # 볼륨 이미지에서 원본 데이터 값 가져오기
+                try:
+                    from PIL import Image
+                    import numpy as np
+                    
+                    # 이미지 파일 열기
+                    with Image.open(volumetric_handler.filepath) as img:
+                        img.seek(current_slice)  # 현재 슬라이스로 이동
+                        
+                        # 이미지 범위 확인
+                        if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
+                            # 이미지를 배열로 변환
+                            img_array = np.array(img)
+                            
+                            # 픽셀 값 가져오기
+                            if img.mode == 'L':  # 8비트 그레이스케일
+                                pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                            elif img.mode == 'I':  # 32비트 정수
+                                pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                            elif img.mode == 'F':  # 32비트 실수
+                                value = img_array[int_scene_y, int_scene_x]
+                                pixel_value = f"{value:.3f}"
+                            else:
+                                # RGB, RGBA 등 다른 이미지 모드 처리
+                                if img.mode == 'RGB':
+                                    r, g, b = img_array[int_scene_y, int_scene_x]
+                                    pixel_value = f"({r}, {g}, {b})"
+                                elif img.mode == 'RGBA':
+                                    r, g, b, a = img_array[int_scene_y, int_scene_x]
+                                    pixel_value = f"({r}, {g}, {b}, {a})"
+                                else:
+                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                except Exception as e:
+                    pixel_value = f"Error: {str(e)}"
+        else:
+            # 일반 이미지 처리 (볼륨 데이터가 아닌 경우)
+            pixmap = self._pixmapItem_main_topleft.pixmap()
+            if not pixmap.isNull() and 0 <= scene_x < pixmap.width() and 0 <= scene_y < pixmap.height():
+                image = pixmap.toImage()
+                pixel = image.pixel(scene_x, scene_y)
+                color = QtGui.QColor(pixel)
+                if pixmap.depth() <= 8:  # 그레이스케일 이미지
+                    pixel_value = f"{color.red()}"  # 그레이스케일은 RGB 값이 모두 동일
+                else:  # 컬러 이미지
+                    pixel_value = f"({color.red()}, {color.green()}, {color.blue()})"
+        
+        # 텍스트 업데이트 및 위치 설정
+        self.mouse_rect_text.setPlainText(f"({scene_x}, {scene_y}): {pixel_value}")
+        self.mouse_rect_text.setPos(mouse_rect_pos_origin.x(), mouse_rect_pos_origin.y() + self.mouse_rect_height + 1)
+
     # Signals
     signal_display_loading_grayout = QtCore.pyqtSignal(bool, str, float)
     """Emitted when comments are being saved or loaded."""
@@ -1414,6 +1477,17 @@ class SplitView(QtWidgets.QFrame):
         self.mouse_rect_scene_main_topleft.setPen(pen)
         
         self._scene_main_topleft.addItem(self.mouse_rect_scene_main_topleft)
+        
+        # 마우스 rect 아래에 위치와 픽셀값을 표시할 텍스트 항목 생성
+        self.mouse_rect_text = QtWidgets.QGraphicsTextItem()
+        self.mouse_rect_text.setPlainText("(x, y): 값")
+        self.mouse_rect_text.setDefaultTextColor(QtCore.Qt.red)
+        font = QtGui.QFont()
+        font.setPointSize(8)
+        self.mouse_rect_text.setFont(font)
+        self.mouse_rect_text.setZValue(100)  # 다른 항목들 위에 표시
+        self._scene_main_topleft.addItem(self.mouse_rect_text)
+        self.mouse_rect_text.setPos(0, self.mouse_rect_height + 1)  # mouse_rect 아래에 위치
 
     def set_mouse_rect_visible(self, boolean):
         """Set the visibilty of the red 1x1 outline at the pointer in the main scene.
@@ -1422,3 +1496,4 @@ class SplitView(QtWidgets.QFrame):
             boolean (bool): True to show 1x1 outline; False to hide.
         """
         self.mouse_rect_scene_main_topleft.setVisible(boolean)
+        self.mouse_rect_text.setVisible(boolean)  # 텍스트도 함께 보이거나 숨김

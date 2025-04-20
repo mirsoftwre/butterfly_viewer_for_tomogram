@@ -1818,22 +1818,84 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             scene_x = point_of_mouse_on_scene.x()
             scene_y = point_of_mouse_on_scene.y()
             
+            # 활성 창에서 픽셀 값 가져오기
+            pixel_value = "N/A"
+            
+            # 볼륨 데이터인 경우 원본 데이터 값을 가져옴
+            if hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
+                volumetric_handler = self.activeMdiChild.volumetric_handler
+                if volumetric_handler:
+                    int_scene_x = int(scene_x)
+                    int_scene_y = int(scene_y)
+                    current_slice = self.activeMdiChild.current_slice
+                    
+                    # 볼륨 이미지에서 원본 데이터 값 가져오기
+                    try:
+                        from PIL import Image
+                        import numpy as np
+                        
+                        # 이미지 파일 열기
+                        with Image.open(volumetric_handler.filepath) as img:
+                            img.seek(current_slice)  # 현재 슬라이스로 이동
+                            
+                            # 이미지 범위 확인
+                            if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
+                                # 이미지를 배열로 변환
+                                img_array = np.array(img)
+                                
+                                # 픽셀 값 가져오기
+                                if img.mode == 'L':  # 8비트 그레이스케일
+                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                                elif img.mode == 'I':  # 32비트 정수
+                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                                elif img.mode == 'F':  # 32비트 실수
+                                    value = img_array[int_scene_y, int_scene_x]
+                                    pixel_value = f"{value:.3f}"
+                                else:
+                                    # RGB, RGBA 등 다른 이미지 모드 처리
+                                    if img.mode == 'RGB':
+                                        r, g, b = img_array[int_scene_y, int_scene_x]
+                                        pixel_value = f"({r}, {g}, {b})"
+                                    elif img.mode == 'RGBA':
+                                        r, g, b, a = img_array[int_scene_y, int_scene_x]
+                                        pixel_value = f"({r}, {g}, {b}, {a})"
+                                    else:
+                                        pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                    except Exception as e:
+                        pixel_value = f"Error: {str(e)}"
+            else:
+                # 볼륨 데이터가 아닌 경우 기존 처리 방식 사용
+                active_pixmap = self.activeMdiChild._pixmapItem_main_topleft.pixmap()
+                if not active_pixmap.isNull() and 0 <= int(scene_x) < active_pixmap.width() and 0 <= int(scene_y) < active_pixmap.height():
+                    image = active_pixmap.toImage()
+                    pixel = image.pixel(int(scene_x), int(scene_y))
+                    color = QtGui.QColor(pixel)
+                    if active_pixmap.depth() <= 8:  # 그레이스케일 이미지
+                        pixel_value = f"{color.red()}"  # 그레이스케일은 RGB 값이 모두 동일
+                    else:  # 컬러 이미지
+                        pixel_value = f"({color.red()}, {color.green()}, {color.blue()})"
+            
             # 모든 MDI 자식 창에 좌표 전달
             windows = self._mdiArea.subWindowList()
             for window in windows:
                 child = window.widget()
-                if child != self.activeMdiChild:  # 활성 창은 이미 좌표가 설정되어 있음
-                    child_view = child._view_main_topleft
-                    # scene 좌표를 각 뷰의 view 좌표로 변환하여 해당 위치에 표시
-                    child_view_point = child_view.mapFromScene(scene_x, scene_y)
-                    # 뷰의 경계 내에 있는지 확인하고 mouse_rect 위치 설정
-                    if (0 <= child_view_point.x() < child_view.width() and 
-                        0 <= child_view_point.y() < child_view.height()):
-                        # 올바른 속성 이름 사용 
-                        # mouse_rect_pos_origin에 맞게 계산
-                        mouse_rect_pos_origin_x = math.floor(scene_x - child.mouse_rect_width + 1)
-                        mouse_rect_pos_origin_y = math.floor(scene_y - child.mouse_rect_height + 1)
-                        child.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y)
+                child_view = child._view_main_topleft
+                
+                # scene 좌표를 각 뷰의 view 좌표로 변환하여 해당 위치에 표시
+                child_view_point = child_view.mapFromScene(scene_x, scene_y)
+                
+                # 뷰의 경계 내에 있는지 확인
+                if (0 <= child_view_point.x() < child_view.width() and 
+                    0 <= child_view_point.y() < child_view.height()):
+                    
+                    # mouse_rect 위치 계산 및 설정
+                    mouse_rect_pos_origin_x = math.floor(scene_x - child.mouse_rect_width + 1)
+                    mouse_rect_pos_origin_y = math.floor(scene_y - child.mouse_rect_height + 1)
+                    child.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y)
+                    
+                    # 동일한 픽셀 값으로 텍스트 설정 (활성 창의 픽셀 값 사용)
+                    child.mouse_rect_text.setPlainText(f"({int(scene_x)}, {int(scene_y)}): {pixel_value}")
+                    child.mouse_rect_text.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y + child.mouse_rect_height + 1)
             
         else:
             
