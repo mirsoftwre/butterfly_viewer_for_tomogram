@@ -1000,12 +1000,23 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         # Hide slice controls in all subwindows
         slice_controls_states = {}
+        mouse_rect_states = {}
         windows = self._mdiArea.subWindowList()
         for window in windows:
             child = window.widget()
+            # 볼륨 데이터의 슬라이스 컨트롤 상태 저장 및 숨김
             if hasattr(child, 'is_volumetric') and child.is_volumetric:
                 slice_controls_states[window] = child.z_slice_controls.isVisible()
                 child.set_slice_controls_visible(False)
+            
+            # mouse_rect 및 픽셀값 문자열 상태 저장 및 숨김
+            if hasattr(child, 'mouse_rect_scene_main_topleft') and child.mouse_rect_scene_main_topleft:
+                mouse_rect_states[window] = {
+                    'rect_visible': child.mouse_rect_scene_main_topleft.isVisible(),
+                    'text_visible': child.mouse_rect_text.isVisible()
+                }
+                child.mouse_rect_scene_main_topleft.setVisible(False)
+                child.mouse_rect_text.setVisible(False)
 
         pixmap = self._mdiArea.grab()
         clipboard = QtWidgets.QApplication.clipboard()
@@ -1014,6 +1025,12 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         # Restore slice controls visibility
         for window, was_visible in slice_controls_states.items():
             window.widget().set_slice_controls_visible(was_visible)
+            
+        # Restore mouse_rect and text visibility
+        for window, states in mouse_rect_states.items():
+            child = window.widget()
+            child.mouse_rect_scene_main_topleft.setVisible(states['rect_visible'])
+            child.mouse_rect_text.setVisible(states['text_visible'])
 
         if not interface_was_already_set_hidden:
             self.show_interface_on()
@@ -1042,18 +1059,35 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         # Hide slice controls in all subwindows
         slice_controls_states = {}
+        mouse_rect_states = {}
         windows = self._mdiArea.subWindowList()
         for window in windows:
             child = window.widget()
+            # 볼륨 데이터의 슬라이스 컨트롤 상태 저장 및 숨김
             if hasattr(child, 'is_volumetric') and child.is_volumetric:
                 slice_controls_states[window] = child.z_slice_controls.isVisible()
                 child.set_slice_controls_visible(False)
+                
+            # mouse_rect 및 픽셀값 문자열 상태 저장 및 숨김
+            if hasattr(child, 'mouse_rect_scene_main_topleft') and child.mouse_rect_scene_main_topleft:
+                mouse_rect_states[window] = {
+                    'rect_visible': child.mouse_rect_scene_main_topleft.isVisible(),
+                    'text_visible': child.mouse_rect_text.isVisible()
+                }
+                child.mouse_rect_scene_main_topleft.setVisible(False)
+                child.mouse_rect_text.setVisible(False)
 
         pixmap = self._mdiArea.grab()
 
         # Restore slice controls visibility
         for window, was_visible in slice_controls_states.items():
             window.widget().set_slice_controls_visible(was_visible)
+            
+        # Restore mouse_rect and text visibility
+        for window, states in mouse_rect_states.items():
+            child = window.widget()
+            child.mouse_rect_scene_main_topleft.setVisible(states['rect_visible'])
+            child.mouse_rect_text.setVisible(states['text_visible'])
 
         date_and_time = datetime.now().strftime('%Y-%m-%d %H%M%S') # Sets the default filename with date and time 
         filename = "Viewer screenshot " + date_and_time + ".png"
