@@ -22,6 +22,7 @@ from PyQt5 import sip
 import time
 import os
 from datetime import datetime
+import math
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -1812,7 +1813,27 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             
             pos_qcursor_view = active_view.mapFromGlobal(pos_qcursor_global)
             pos_qcursor_scene = active_view.mapToScene(pos_qcursor_view)
-            # print("Cursor coords scene: ( %d , %d )" % (pos_qcursor_scene.x(), pos_qcursor_scene.y()))
+            
+            # 모든 자식 창에 현재 scene 좌표를 전달하여 동일한 위치에 mouse_rect 표시
+            scene_x = point_of_mouse_on_scene.x()
+            scene_y = point_of_mouse_on_scene.y()
+            
+            # 모든 MDI 자식 창에 좌표 전달
+            windows = self._mdiArea.subWindowList()
+            for window in windows:
+                child = window.widget()
+                if child != self.activeMdiChild:  # 활성 창은 이미 좌표가 설정되어 있음
+                    child_view = child._view_main_topleft
+                    # scene 좌표를 각 뷰의 view 좌표로 변환하여 해당 위치에 표시
+                    child_view_point = child_view.mapFromScene(scene_x, scene_y)
+                    # 뷰의 경계 내에 있는지 확인하고 mouse_rect 위치 설정
+                    if (0 <= child_view_point.x() < child_view.width() and 
+                        0 <= child_view_point.y() < child_view.height()):
+                        # 올바른 속성 이름 사용 
+                        # mouse_rect_pos_origin에 맞게 계산
+                        mouse_rect_pos_origin_x = math.floor(scene_x - child.mouse_rect_width + 1)
+                        mouse_rect_pos_origin_y = math.floor(scene_y - child.mouse_rect_height + 1)
+                        child.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y)
             
         else:
             
