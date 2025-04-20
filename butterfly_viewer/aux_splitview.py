@@ -1483,9 +1483,10 @@ class SplitView(QtWidgets.QFrame):
         self.mouse_rect_text.setPlainText("(x, y): 값")
         self.mouse_rect_text.setDefaultTextColor(QtCore.Qt.red)
         font = QtGui.QFont()
-        font.setPointSize(8)
+        font.setPointSize(11)  # 글자 크기를 11pt로 고정
         self.mouse_rect_text.setFont(font)
         self.mouse_rect_text.setZValue(100)  # 다른 항목들 위에 표시
+        self.mouse_rect_text.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations, True)  # 확대 배율과 상관없이 크기 고정
         self._scene_main_topleft.addItem(self.mouse_rect_text)
         self.mouse_rect_text.setPos(0, self.mouse_rect_height + 1)  # mouse_rect 아래에 위치
 
