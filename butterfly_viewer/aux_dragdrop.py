@@ -299,7 +299,7 @@ class DragDropImageLabel(QtWidgets.QWidget):
     
     def dragEnterEvent(self, event):
         """event: Override dragEnterEvent() to set stylesheet as hovered and read filepath from a dragged image, but reject multiple files."""
-        if len(event.mimeData().urls()) is 1 and self.grab_image_urls_from_mimedata(event.mimeData()):
+        if len(event.mimeData().urls()) == 1 and self.grab_image_urls_from_mimedata(event.mimeData()):
             self.image_label_child.set_stylesheet_hovered(True)
             event.accept()
         else:
@@ -307,7 +307,7 @@ class DragDropImageLabel(QtWidgets.QWidget):
 
     def dragMoveEvent(self, event):
         """event: Override dragMoveEvent() to reject multiple files."""
-        if len(event.mimeData().urls()) is 1 and self.grab_image_urls_from_mimedata(event.mimeData()):
+        if len(event.mimeData().urls()) == 1 and self.grab_image_urls_from_mimedata(event.mimeData()):
             event.accept()
         else:
             event.ignore()
@@ -319,7 +319,7 @@ class DragDropImageLabel(QtWidgets.QWidget):
     def dropEvent(self, event):
         """event: Override dropEvent() to read filepath from a dragged image and load image preview."""
         urls = self.grab_image_urls_from_mimedata(event.mimeData())
-        if len(urls) is 1 and urls:
+        if len(urls) == 1 and urls:
             event.setDropAction(QtCore.Qt.CopyAction)
             file_path = urls[0].toLocalFile()
             loaded = self.load_image(file_path)
@@ -405,7 +405,7 @@ class DragDropImageLabel(QtWidgets.QWidget):
             
         # Standard image loading for non-volumetric files
         pixmap = QtGui.QPixmap(file_path)
-        if pixmap.depth() is 0:
+        if pixmap.depth() == 0:
             self.display_loading_grayout(False)
             return False
         

@@ -132,7 +132,7 @@ class PixelUnitConversionInputDialog(QtWidgets.QDialog):
         if text is None:
             return
         text = text.replace(" ", "")
-        if text is "":
+        if text == "":
             return
         text = text.replace(",", ".")
         text_filter = text
@@ -179,7 +179,7 @@ class PixelUnitConversionInputDialog(QtWidgets.QDialog):
         if text is None:
             return
         text = text.replace(" ", "")
-        if text is "":
+        if text == "":
             return
         text = text.replace(",", ".")
         text_filter = text
