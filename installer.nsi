@@ -5,7 +5,7 @@
 !define COMPANYNAME "Mir Software"
 !define DESCRIPTION "Image Viewer for Volumetrics Images"
 !define VERSIONMAJOR 1
-!define VERSIONMINOR 0
+!define VERSIONMINOR 1
 !define VERSIONBUILD 0
 !define HELPURL "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 !define UPDATEURL "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
