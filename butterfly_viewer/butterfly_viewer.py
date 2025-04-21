@@ -45,7 +45,7 @@ os.environ["QT_SCALE_FACTOR"]             = "1"
 COMPANY = "Mir Software"
 DOMAIN = "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 APPNAME = "Butterfly Viewer for Volumetric Images"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 SETTING_RECENTFILELIST = "recentfilelist"
 SETTING_LAST_DIRECTORY = "lastdirectory"
@@ -2902,7 +2902,21 @@ def main():
         app (QApplication): Starts and holds the main event loop of application.
         mainWin (MultiViewMainWindow): The main window.
     """
-    parser = argparse.ArgumentParser(
+    import sys
+    import os  # os 모듈 명시적으로 임포트
+    
+    # 파일을 더블 클릭해서 실행할 때 sys.stderr가 None일 수 있음
+    # 이 경우 argparse 오류 발생 방지를 위해 커스텀 ArgumentParser 사용
+    class ArgumentParserWithoutExit(argparse.ArgumentParser):
+        def error(self, message):
+            if sys.stderr is None:
+                # 더블 클릭 실행 시 stderr가 없는 경우 조용히 넘어감
+                pass
+            else:
+                # 일반적인 명령줄 실행 시 표준 에러 메시지 출력
+                super().error(message)
+    
+    parser = ArgumentParserWithoutExit(
                 prog='Butterfly Viewer',
                 description='Side-by-side image viewer with synchronized zoom and sliding overlays. Further info: https://olive-groves.github.io/butterfly_viewer/'
             )
@@ -2912,14 +2926,51 @@ def main():
     parser.add_argument('--hide', help='If provided, hides the interface on start.', action='store_true')
     parser.add_argument('--fullscreen', help='If provided, fullscreens the app on start.', action='store_true')
     parser.add_argument('--show-overlay-controls', help='If provided, shows the overlay controls on start.', action='store_true')
+    parser.add_argument('--suppress-warnings', help='If provided, suppresses Qt warning messages.', action='store_true')
     parser.add_argument('--paths', nargs="*", help='If provided, automatically starts with individual (side by side) image windows supplied by these paths.')
     parser.add_argument('--overlay_path_main_topleft', help='If provided, automatically starts with the main image (top left) supplied by this path.')
     parser.add_argument('--overlay_path_topright', help='If provided, automatically starts with the top right image supplied by this path.')
     parser.add_argument('--overlay_path_bottomleft', help='If provided, automatically starts with the bottom left image supplied by this path.')
     parser.add_argument('--overlay_path_bottomright', help='If provided, automatically starts with the bottom right image supplied by this path.')
-    args = parser.parse_args()
+    
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        # 파일을 더블 클릭하여 실행한 경우, 또는 잘못된 인수가 전달된 경우
+        # 기본 값으로 진행
+        class DefaultArgs:
+            hide = False
+            fullscreen = False
+            show_overlay_controls = False
+            suppress_warnings = False
+            paths = []
+            overlay_path_main_topleft = None
+            overlay_path_topright = None
+            overlay_path_bottomleft = None
+            overlay_path_bottomright = None
+        args = DefaultArgs()
+        
+    # 더블 클릭한 파일 경로가 있으면 추가
+    if len(sys.argv) > 1:
+        file_path = sys.argv[1].replace('\\', '/').strip('"')  # 경로 정규화 및 따옴표 제거
+        if os.path.isfile(file_path):
+            args.paths = [file_path]
+            print(f"Loading file: {file_path}")  # 디버깅용 출력
 
-    import sys
+    # 경고 메시지 억제 옵션
+    if args.suppress_warnings:
+        import os
+        os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.*=false"
+        # stderr 리디렉션
+        class NullWriter:
+            def write(self, text):
+                pass
+            def flush(self):
+                pass
+        
+        if sys.stderr is None:
+            sys.stderr = NullWriter()
+
     app = QtWidgets.QApplication(sys.argv)
     QtCore.QSettings.setDefaultFormat(QtCore.QSettings.IniFormat)
     app.setOrganizationName(COMPANY)
@@ -2958,7 +3009,7 @@ def main():
     # 기본적으로 Overlay 관련 컨트롤 숨기기 (명령줄 매개변수로 재정의 가능)
     if not args.show_overlay_controls:
         # Sliding overlay creator, Overlay 컨트롤, Lock overlay 패널을 숨깁니다
-        mainWin.show_interface_off()
+        mainWin.toggle_overlay_panels(False)
     
     if args.hide:
         mainWin.show_interface_off()
