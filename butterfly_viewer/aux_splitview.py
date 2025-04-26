@@ -136,7 +136,7 @@ class SplitView(QtWidgets.QFrame):
         self._pixmapItem_topright = QtWidgets.QGraphicsPixmapItem()
         self.pixmap_topright = pixmap_topright
         
-        self._scene_topright = QtWidgets.QGraphicsScene()
+        self._scene_topright = CustomQGraphicsScene()
         self._scene_topright.addItem(self._pixmapItem_topright)
         
         self._view_topright = QtWidgets.QGraphicsView(self._scene_topright)
@@ -150,7 +150,7 @@ class SplitView(QtWidgets.QFrame):
         self._pixmapItem_bottomleft = QtWidgets.QGraphicsPixmapItem()
         self.pixmap_bottomleft = pixmap_bottomleft
         
-        self._scene_bottomleft = QtWidgets.QGraphicsScene()
+        self._scene_bottomleft = CustomQGraphicsScene()
         self._scene_bottomleft.addItem(self._pixmapItem_bottomleft)
         
         self._view_bottomleft = QtWidgets.QGraphicsView(self._scene_bottomleft)
@@ -164,7 +164,7 @@ class SplitView(QtWidgets.QFrame):
         self._pixmapItem_bottomright = QtWidgets.QGraphicsPixmapItem()
         self.pixmap_bottomright = pixmap_bottomright
         
-        self._scene_bottomright = QtWidgets.QGraphicsScene()
+        self._scene_bottomright = CustomQGraphicsScene()
         self._scene_bottomright.addItem(self._pixmapItem_bottomright)
         
         self._view_bottomright = QtWidgets.QGraphicsView(self._scene_bottomright)

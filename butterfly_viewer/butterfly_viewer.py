@@ -1721,6 +1721,17 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         child.was_set_scene_background_color.connect(self.set_all_background_color)
         child.was_set_sync_zoom_by.connect(self.set_all_sync_zoom_by)
         child.display_range_changed.connect(lambda min_val, max_val: self.synchDisplayRange(child, min_val, max_val))
+        
+        # Connect the crop signal from context menu
+        child._scene_main_topleft.right_click_crop.connect(self.cropSelectedArea)
+        
+        # We need to check if these scenes exist and connect their crop signals too
+        if hasattr(child, '_scene_topright'):
+            child._scene_topright.right_click_crop.connect(self.cropSelectedArea)
+        if hasattr(child, '_scene_bottomleft'):
+            child._scene_bottomleft.right_click_crop.connect(self.cropSelectedArea)
+        if hasattr(child, '_scene_bottomright'):
+            child._scene_bottomright.right_click_crop.connect(self.cropSelectedArea)
 
         return child
 
@@ -2242,6 +2253,16 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             statusTip="Show the Qt library's About box",
             triggered=QtWidgets.QApplication.aboutQt)
 
+        # Create copy action
+        self.copyAct = QtWidgets.QAction("Copy to Clipboard", self,
+            statusTip="Copy the current view to clipboard",
+            triggered=self.copy_view)
+
+        # Create crop action
+        self.cropAct = QtWidgets.QAction("Crop", self,
+            statusTip="Crop the selected area",
+            triggered=self.cropSelectedArea)
+
     def createMenus(self):
         """Create menus."""
         self._fileMenu = self.menuBar().addMenu("&File")
@@ -2278,21 +2299,25 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self._helpMenu.addAction(self._aboutAct)
         self._helpMenu.addAction(self._aboutQtAct)
 
+        # Edit menu
+        self.editMenu = self.menuBar().addMenu("&Edit")
+        self.editMenu.addAction(self.copyAct)
+        self.editMenu.addAction(self.cropAct)  # Add the crop action to Edit menu
+
     def updateMenus(self):
         """Update menus."""
         hasMdiChild = (self.activeMdiChild is not None)
-
-        self._scrollMenu.setEnabled(hasMdiChild)
-        self._zoomMenu.setEnabled(hasMdiChild)
-
         self._closeAct.setEnabled(hasMdiChild)
         self._closeAllAct.setEnabled(hasMdiChild)
-
         self._tileAct.setEnabled(hasMdiChild)
         self._cascadeAct.setEnabled(hasMdiChild)
         self._nextAct.setEnabled(hasMdiChild)
         self._previousAct.setEnabled(hasMdiChild)
         self._separatorAct.setVisible(hasMdiChild)
+        
+        hasWindow = (self.activeMdiChild is not None)
+        self.copyAct.setEnabled(hasWindow)
+        self.cropAct.setEnabled(hasWindow)
 
     def updateRecentFileActions(self):
         """Update recent file menu items."""
@@ -2379,12 +2404,20 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         """Overrides close event to save application settings.
 
-        :param QEvent event: instance of |QEvent|"""
+        Args:
+            event (QEvent): instance of QEvent
+        """
+        # Clean up any ongoing crop operation
+        if hasattr(self, 'cropMode') and self.cropMode:
+            self.cropMode = False
+            if hasattr(self, 'rubberBand') and self.rubberBand:
+                self.rubberBand.deleteLater()
+                self.rubberBand = None
 
         if self.is_fullscreen: # Needed to properly close the image viewer if the main window is closed while the viewer is fullscreen
             self.is_fullscreen = False
             self.setCentralWidget(self.mdiarea_plus_buttons)
-
+        
         self._mdiArea.closeAllSubWindows()
         if self.activeMdiChild:
             event.ignore()
@@ -2673,11 +2706,35 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 "viewer windows using Qt.")
     @QtCore.pyqtSlot(QtWidgets.QMdiSubWindow)
     def subWindowActivated(self, window):
-        """Handle |QMdiSubWindow| activated signal.
+        """Update UI state with the newly active MDI subwindow.
 
-        :param |QMdiSubWindow| window: |QMdiSubWindow| that was just
-                                       activated"""
+        Hide main menu if no subwindows are active because none exist. 
+        Show main menu if at least one subwindow is active.
+
+        Args:
+            window (QMdiSubWindow): The subwindow being activated.
+        """
+        # Clear any active cropping operation
+        if hasattr(self, 'cropMode') and self.cropMode:
+            self.cropMode = False
+            if hasattr(self, 'rubberBand') and self.rubberBand:
+                self.rubberBand.hide()
+                self.rubberBand.deleteLater()
+                self.rubberBand = None
+            
+            # Remove any existing event filter
+            for w in self._mdiArea.subWindowList():
+                if hasattr(w.widget(), '_view_main_topleft'):
+                    w.widget()._view_main_topleft.viewport().removeEventFilter(self)
+            
+            self.statusBar().showMessage("Crop canceled", 2000)
+            
+        self.updateMenus()
         self.updateStatusBar()
+        self.update_mdi_buttons(window)
+        if window:
+            self.update_window_highlight(window)
+            self.update_sliders(window)
 
     @QtCore.pyqtSlot(QtWidgets.QMdiSubWindow)
     def setActiveSubWindow(self, window):
@@ -2893,6 +2950,179 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             self._sliders_opacity_splitviews.setVisible(False)
             self._splitview_manager.setVisible(False)
 
+    def cropSelectedArea(self):
+        """Crop the selected area of the image and store in buffer."""
+        # Check if there's an active window
+        if not self.activeMdiChild:
+            return
+            
+        # Clean up any existing rubber band first
+        if hasattr(self, 'rubberBand') and self.rubberBand:
+            self.rubberBand.deleteLater()
+            self.rubberBand = None
+            
+        if hasattr(self, 'cropOrigin'):
+            self.cropOrigin = None
+            
+        # Remove any existing event filter
+        for window in self._mdiArea.subWindowList():
+            if hasattr(window.widget(), '_view_main_topleft'):
+                window.widget()._view_main_topleft.viewport().removeEventFilter(self)
+            
+        # Get the viewport of the active MDI child view
+        viewport = self.activeMdiChild._view_main_topleft.viewport()
+            
+        # Create a new rubber band for selection
+        self.rubberBand = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, viewport)
+        self.cropOrigin = None
+            
+        # Install event filter on the active viewport only
+        viewport.installEventFilter(self)
+            
+        # Set the window to crop mode
+        self.cropMode = True
+        self.statusBar().showMessage("Select area to crop. Click and drag to select.")
+
+    def eventFilter(self, source, event):
+        """Event filter to handle rubber band selection for cropping."""
+        if not hasattr(self, 'cropMode') or not self.cropMode:
+            return super().eventFilter(source, event)
+            
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+            self.cropOrigin = event.pos()
+            self.rubberBand.setGeometry(QtCore.QRect(self.cropOrigin, QtCore.QSize()))
+            self.rubberBand.show()
+            return True
+            
+        elif event.type() == QtCore.QEvent.MouseMove and self.cropOrigin is not None:
+            self.rubberBand.setGeometry(QtCore.QRect(self.cropOrigin, event.pos()).normalized())
+            return True
+            
+        elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton and self.cropOrigin is not None:
+            # Get the selection rectangle
+            crop_rect = self.rubberBand.geometry()
+            self.rubberBand.hide()
+            
+            # Perform the actual cropping
+            self.performCrop(crop_rect)
+            
+            # Clean up resources
+            if hasattr(self, 'rubberBand') and self.rubberBand:
+                self.rubberBand.deleteLater()
+                self.rubberBand = None
+            
+            # Remove event filter
+            if self.activeMdiChild and hasattr(self.activeMdiChild, '_view_main_topleft'):
+                self.activeMdiChild._view_main_topleft.viewport().removeEventFilter(self)
+            
+            # Reset crop mode
+            self.cropMode = False
+            self.cropOrigin = None
+            self.statusBar().showMessage("Crop completed", 2000)
+            
+            return True
+            
+        return super().eventFilter(source, event)
+        
+    def performCrop(self, rect):
+        """Perform the actual cropping of the image."""
+        if not self.activeMdiChild:
+            return
+            
+        # Get the current view and scene
+        current_view = self.activeMdiChild._view_main_topleft
+        
+        # Map the rectangle from view coordinates to scene coordinates
+        top_left_scene = current_view.mapToScene(rect.topLeft())
+        bottom_right_scene = current_view.mapToScene(rect.bottomRight())
+        
+        # Calculate crop coordinates in original image space
+        crop_x = max(0, int(top_left_scene.x()))
+        crop_y = max(0, int(top_left_scene.y()))
+        crop_width = min(int(bottom_right_scene.x() - top_left_scene.x()), 10000)  # Prevent unreasonable sizes
+        crop_height = min(int(bottom_right_scene.y() - top_left_scene.y()), 10000)
+        
+        # Check if the active window has volumetric data (with range adjustment)
+        is_volumetric = hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric
+        
+        # Choose how to crop based on whether it's volumetric data
+        if is_volumetric and hasattr(self.activeMdiChild, 'volumetric_handler'):
+            # Get the current slice from volumetric handler
+            volumetric_handler = self.activeMdiChild.volumetric_handler
+            current_slice = volumetric_handler.current_slice
+            
+            # Load the original slice without normalization
+            try:
+                from PIL import Image
+                import numpy as np
+                
+                with Image.open(volumetric_handler.filepath) as img:
+                    img.seek(current_slice)
+                    
+                    # Ensure crop rectangle is within image bounds
+                    width, height = img.size
+                    crop_width = min(crop_width, width - crop_x)
+                    crop_height = min(crop_height, height - crop_y)
+                    
+                    if crop_width <= 0 or crop_height <= 0:
+                        QtWidgets.QMessageBox.warning(self, "Crop Error", "Invalid crop selection. Please try again.")
+                        return
+                    
+                    # Crop the original image before any range adjustment
+                    cropped_region = img.crop((crop_x, crop_y, crop_x + crop_width, crop_y + crop_height))
+                    
+                    # If the original is not 8-bit, we need to normalize it to display properly
+                    if img.mode != 'L':
+                        # Get the original data range
+                        min_val, max_val = volumetric_handler.data_range
+                        
+                        # Convert to numpy array for processing
+                        img_array = np.array(cropped_region)
+                        
+                        # Normalize to [0, 255] range for display
+                        normalized = np.clip(img_array, min_val, max_val)
+                        normalized = ((normalized - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                        
+                        # Convert back to PIL image
+                        cropped_region = Image.fromarray(normalized, mode='L')
+                    
+                    # Convert PIL image to QPixmap
+                    data = cropped_region.tobytes("raw", "L")
+                    qimage = QtGui.QImage(data, cropped_region.width, cropped_region.height, cropped_region.width, QtGui.QImage.Format_Grayscale8)
+                    cropped_pixmap = QtGui.QPixmap.fromImage(qimage)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "Crop Error", f"Failed to crop image: {str(e)}")
+                return
+        else:
+            # Regular (non-volumetric) image cropping
+            # Get the original pixmap from the pixmap item
+            pixmap = self.activeMdiChild._pixmapItem_main_topleft.pixmap()
+            if not pixmap:
+                QtWidgets.QMessageBox.warning(self, "Crop Error", "No image to crop.")
+                return
+            
+            # Ensure crop rectangle is within the pixmap bounds
+            crop_width = min(crop_width, pixmap.width() - crop_x)
+            crop_height = min(crop_height, pixmap.height() - crop_y)
+            
+            # Check if the crop rectangle is valid
+            if crop_width <= 0 or crop_height <= 0:
+                QtWidgets.QMessageBox.warning(self, "Crop Error", "Invalid crop selection. Please try again.")
+                return
+            
+            # Perform the crop on the original image
+            image = pixmap.toImage()
+            cropped_image = image.copy(crop_x, crop_y, crop_width, crop_height)
+            cropped_pixmap = QtGui.QPixmap.fromImage(cropped_image)
+        
+        # Copy to clipboard
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setPixmap(cropped_pixmap)
+        self.statusBar().showMessage("Cropped image copied to clipboard", 2000)
+        
+        # Store in buffer in case needed later
+        self.croppedBuffer = cropped_pixmap
+
 
 
 def main():
@@ -2932,6 +3162,8 @@ def main():
     parser.add_argument('--overlay_path_topright', help='If provided, automatically starts with the top right image supplied by this path.')
     parser.add_argument('--overlay_path_bottomleft', help='If provided, automatically starts with the bottom left image supplied by this path.')
     parser.add_argument('--overlay_path_bottomright', help='If provided, automatically starts with the bottom right image supplied by this path.')
+    parser.add_argument('--file-associations', help='If provided, opens the file associations configuration window.', action='store_true')
+    parser.add_argument('--extensions', nargs="*", help='If provided, associates the specified file extensions with Butterfly Viewer.')
     
     try:
         args = parser.parse_args()
@@ -2948,6 +3180,8 @@ def main():
             overlay_path_topright = None
             overlay_path_bottomleft = None
             overlay_path_bottomright = None
+            file_associations = False
+            extensions = []
         args = DefaultArgs()
         
     # 더블 클릭한 파일 경로가 있으면 추가
@@ -3015,6 +3249,12 @@ def main():
         mainWin.show_interface_off()
     if args.fullscreen:
         mainWin.set_fullscreen_on()
+
+    if args.file_associations:
+        mainWin.configureFileAssociations()
+
+    if args.extensions:
+        file_association.associate_extensions(args.extensions)
 
     mainWin.show()
     sys.exit(app.exec_())

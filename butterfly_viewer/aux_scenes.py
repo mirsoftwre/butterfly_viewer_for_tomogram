@@ -71,6 +71,7 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     right_click_background_color = QtCore.pyqtSignal(list)
     right_click_sync_zoom_by = QtCore.pyqtSignal(str)
     position_changed_qgraphicsitem = QtCore.pyqtSignal()
+    right_click_crop = QtCore.pyqtSignal()  # New signal for crop functionality
     
     def contextMenuEvent(self, event):
         """Override the event of the context menu (right-click menu)  to display options.
@@ -132,9 +133,18 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             if action_delete:
                 menu.addAction(action_delete) # action_delete.triggered.connect(lambda: self.removeItem(item.parentItem())) # = menu.addAction("Delete", self.removeItem(item.parentItem()))
         else:
-            action_comment = menu.addAction("Comment")
+            # Image section - comments and crop tools
+            menu_image = QtWidgets.QMenu("Image")
+            menu.addMenu(menu_image)
+            
+            action_comment = menu_image.addAction("Comment")
             action_comment.setToolTip("Add a draggable text comment here")
-            action_comment.triggered.connect(lambda: self.right_click_comment.emit(scene_pos)) # action_comment.triggered.connect(lambda state, x=scene_pos: self.right_click_comment.emit(x))
+            action_comment.triggered.connect(lambda: self.right_click_comment.emit(scene_pos))
+            
+            # Add crop action to Image menu
+            action_crop = menu_image.addAction("Crop")
+            action_crop.setToolTip("Crop the selected area of the image")
+            action_crop.triggered.connect(lambda: self.right_click_crop.emit())
 
             menu_ruler = QtWidgets.QMenu("Measurement ruler...")
             menu_ruler.setToolTip("Add a ruler to measure distances and angles in this image window...")
