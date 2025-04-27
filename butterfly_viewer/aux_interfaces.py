@@ -725,7 +725,7 @@ class SplitViewManager(QtWidgets.QWidget):
                 font-size: 9pt;
             }
         """)
-
+        
     def on_toggle_lock_split_pushbutton(self, boolean):
         """Signal the locking and unlocking of the split and set the text elements of the lock button.
         
