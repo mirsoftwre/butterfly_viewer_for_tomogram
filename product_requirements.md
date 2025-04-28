@@ -225,3 +225,43 @@ Butterfly Viewer is a standalone desktop application that works in conjunction w
 
 ## 9. Conclusion
 Butterfly Viewer for Tomogram is a specialized image viewing application designed for researchers and analysts who need to compare multiple images with high precision. Its key differentiators are the sliding overlay functionality, synchronized navigation, annotation capabilities, and volumetric data support specifically tailored for scientific and research contexts.
+
+# 3D Crop Feature Requirements
+
+## Overview
+The 3D Crop feature allows users to extract a specific XY region across multiple Z slices from volumetric data and save it as a multi-page TIFF file.
+
+## Detailed Requirements
+
+### User Interface
+1. Add a new menu item "Crop (3D)" to the main menu
+2. Implement a selection interface allowing users to:
+   - Define a rectangular region in the XY plane
+   - Adjust the position and size of the selected region
+   - Navigate through Z slices while maintaining the XY selection
+   - Specify start and end Z slices for the crop operation
+
+### Functionality
+1. When activated, allow users to draw a rectangular selection on the current view
+2. Provide handles to resize and reposition the selection rectangle
+3. Enable Z slice navigation during the selection process
+4. Implement a dialog to:
+   - Let users specify Z slice range (all slices or a specific range)
+   - Choose output file path and filename
+   - Confirm or cancel the crop operation
+
+### Data Processing
+1. Extract the selected XY region from each Z slice in the specified range
+2. Use original data for extraction, not the displayed/processed view
+3. Save the extracted data as a multi-page TIFF file
+
+### Technical Requirements
+1. Implement as a separate feature from the existing 2D crop functionality
+2. Handle appropriate error conditions (file write errors, memory limitations)
+3. Provide visual feedback during the extraction and saving process
+4. Maintain UI responsiveness during processing of large datasets
+
+## Success Criteria
+1. Users can successfully select a 3D region (XY area across Z slices)
+2. The cropped region can be saved as a multi-page TIFF
+3. The saved file accurately represents the selected data from the original source

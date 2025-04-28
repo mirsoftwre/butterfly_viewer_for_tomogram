@@ -72,6 +72,7 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     right_click_sync_zoom_by = QtCore.pyqtSignal(str)
     position_changed_qgraphicsitem = QtCore.pyqtSignal()
     right_click_crop = QtCore.pyqtSignal()  # New signal for crop functionality
+    right_click_crop3D = QtCore.pyqtSignal()  # New signal for 3D crop functionality
     
     def contextMenuEvent(self, event):
         """Override the event of the context menu (right-click menu)  to display options.
@@ -145,6 +146,11 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             action_crop = menu_image.addAction("Crop")
             action_crop.setToolTip("Crop the selected area of the image")
             action_crop.triggered.connect(lambda: self.right_click_crop.emit())
+
+            # Add 3D crop action to Image menu
+            action_crop3D = menu_image.addAction("3D Crop")
+            action_crop3D.setToolTip("Crop a volumetric selection across Z slices")
+            action_crop3D.triggered.connect(lambda: self.right_click_crop3D.emit())
 
             menu_ruler = QtWidgets.QMenu("Measurement ruler...")
             menu_ruler.setToolTip("Add a ruler to measure distances and angles in this image window...")

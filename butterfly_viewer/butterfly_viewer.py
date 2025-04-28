@@ -1748,13 +1748,19 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         # Connect the crop signal from context menu
         child._scene_main_topleft.right_click_crop.connect(self.cropSelectedArea)
         
+        # Connect the 3D crop signal from context menu
+        child._scene_main_topleft.right_click_crop3D.connect(self.crop3DSelectedArea)
+        
         # We need to check if these scenes exist and connect their crop signals too
         if hasattr(child, '_scene_topright'):
             child._scene_topright.right_click_crop.connect(self.cropSelectedArea)
+            child._scene_topright.right_click_crop3D.connect(self.crop3DSelectedArea)
         if hasattr(child, '_scene_bottomleft'):
             child._scene_bottomleft.right_click_crop.connect(self.cropSelectedArea)
+            child._scene_bottomleft.right_click_crop3D.connect(self.crop3DSelectedArea)
         if hasattr(child, '_scene_bottomright'):
             child._scene_bottomright.right_click_crop.connect(self.cropSelectedArea)
+            child._scene_bottomright.right_click_crop3D.connect(self.crop3DSelectedArea)
 
         return child
 
@@ -2286,6 +2292,11 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             statusTip="Crop the selected area",
             triggered=self.cropSelectedArea)
 
+        # Create 3D crop action
+        self.crop3DAct = QtWidgets.QAction("3D Crop", self,
+            statusTip="Crop a volumetric selection across Z slices",
+            triggered=self.crop3DSelectedArea)
+
     def createMenus(self):
         """Create menus."""
         self._fileMenu = self.menuBar().addMenu("&File")
@@ -2326,6 +2337,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.editMenu = self.menuBar().addMenu("&Edit")
         self.editMenu.addAction(self.copyAct)
         self.editMenu.addAction(self.cropAct)  # Add the crop action to Edit menu
+        self.editMenu.addAction(self.crop3DAct)  # Add the 3D crop action to Edit menu
 
     def updateMenus(self):
         """Update menus."""
@@ -2341,6 +2353,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         hasWindow = (self.activeMdiChild is not None)
         self.copyAct.setEnabled(hasWindow)
         self.cropAct.setEnabled(hasWindow)
+        self.crop3DAct.setEnabled(hasWindow)
 
     def updateRecentFileActions(self):
         """Update recent file menu items."""
@@ -3182,150 +3195,698 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
     def eventFilter(self, source, event):
         """Event filter to handle crop selection, resizing and movement."""
-        if not hasattr(self, 'inCropMode') or not self.inCropMode:
-            return super().eventFilter(source, event)
-            
-        if not hasattr(self, 'cropSelectionWidget') or self.cropSelectionWidget is None:
-            return super().eventFilter(source, event)
-            
-        # Check if event is from one of our handles (direct handle click)
-        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-            for i, handle in enumerate(self.handles):
-                if handle.isVisible() and source == handle:
-                    self.cropDragMode = "resize"
-                    self.activeHandle = i
-                    self.cropOrigin = event.globalPos()
-                    return True
-            
-        # Mouse press on the viewport
-        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirmCropButton and source != self.cancelCropButton:
-            pos = event.pos()
-            
-            # Check if we're clicking on a handle
-            for i, handle in enumerate(self.handles):
-                if handle.isVisible() and handle.geometry().contains(pos):
-                    self.cropDragMode = "resize"
-                    self.activeHandle = i
-                    self.cropOrigin = pos
-                    return True
-                    
-            # Check if we're on the selection widget
-            if self.cropSelectionWidget.isVisible() and self.cropSelectionWidget.geometry().contains(pos):
-                self.cropDragMode = "move"
-                self.cropOrigin = pos
-                self.moveOffset = pos - self.cropSelectionWidget.pos()
-                return True
-                
-            # Otherwise start creating a new selection
-            self.cropDragMode = "create"
-            self.cropOrigin = pos
-            self.cropSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-            self.cropSelectionWidget.show()
-            
-            # Hide handles when creating a new selection
-            for handle in self.handles:
-                handle.hide()
-                
-            self.confirmCropButton.hide()
-            self.cancelCropButton.hide()
-            return True
-            
-        # Mouse move event - update selection, position or size
-        elif event.type() == QtCore.QEvent.MouseMove:
-            if self.cropOrigin is None:
+        # Handle normal 2D crop
+        if hasattr(self, 'inCropMode') and self.inCropMode:
+            if not hasattr(self, 'cropSelectionWidget') or self.cropSelectionWidget is None:
                 return super().eventFilter(source, event)
                 
-            pos = event.pos()
-            
-            # If the event is from a handle, use global position
-            if any(source == handle for handle in self.handles):
-                pos = event.globalPos()
+            # Check if event is from one of our handles (direct handle click)
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                for i, handle in enumerate(self.handles):
+                    if handle.isVisible() and source == handle:
+                        self.cropDragMode = "resize"
+                        self.activeHandle = i
+                        self.cropOrigin = event.globalPos()
+                        return True
                 
-            if self.cropDragMode == "create":
-                # Creating a new selection
-                self.cropSelectionWidget.setGeometry(QtCore.QRect(self.cropOrigin, pos).normalized())
+            # Mouse press on the viewport
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirmCropButton and source != self.cancelCropButton:
+                pos = event.pos()
                 
-            elif self.cropDragMode == "move":
-                # Moving the selection
-                newPos = pos - self.moveOffset
-                self.cropSelectionWidget.move(newPos)
+                # Check if we're clicking on a handle
+                for i, handle in enumerate(self.handles):
+                    if handle.isVisible() and handle.geometry().contains(pos):
+                        self.cropDragMode = "resize"
+                        self.activeHandle = i
+                        self.cropOrigin = pos
+                        return True
+                        
+                # Check if we're on the selection widget
+                if self.cropSelectionWidget.isVisible() and self.cropSelectionWidget.geometry().contains(pos):
+                    self.cropDragMode = "move"
+                    self.cropOrigin = pos
+                    self.moveOffset = pos - self.cropSelectionWidget.pos()
+                    return True
+                    
+                # Otherwise start creating a new selection
+                self.cropDragMode = "create"
+                self.cropOrigin = pos
+                self.cropSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+                self.cropSelectionWidget.show()
                 
-            elif self.cropDragMode == "resize" and self.activeHandle is not None:
-                # Resizing using a handle
-                rect = self.cropSelectionWidget.geometry()
-                x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                # Hide handles when creating a new selection
+                for handle in self.handles:
+                    handle.hide()
+                    
+                self.confirmCropButton.hide()
+                self.cancelCropButton.hide()
+                return True
                 
-                # If event from handle, calculate delta from global positions
+            # Mouse move event - update selection, position or size
+            elif event.type() == QtCore.QEvent.MouseMove:
+                if self.cropOrigin is None:
+                    return super().eventFilter(source, event)
+                    
+                pos = event.pos()
+                
+                # If the event is from a handle, use global position
                 if any(source == handle for handle in self.handles):
-                    dx = pos.x() - self.cropOrigin.x()
-                    dy = pos.y() - self.cropOrigin.y()
-                    self.cropOrigin = pos
-                else:
-                    dx = pos.x() - self.cropOrigin.x()
-                    dy = pos.y() - self.cropOrigin.y()
-                    self.cropOrigin = pos
+                    pos = event.globalPos()
+                    
+                if self.cropDragMode == "create":
+                    # Creating a new selection
+                    self.cropSelectionWidget.setGeometry(QtCore.QRect(self.cropOrigin, pos).normalized())
+                    
+                elif self.cropDragMode == "move":
+                    # Moving the selection
+                    newPos = pos - self.moveOffset
+                    self.cropSelectionWidget.move(newPos)
+                    
+                elif self.cropDragMode == "resize" and self.activeHandle is not None:
+                    # Resizing using a handle
+                    rect = self.cropSelectionWidget.geometry()
+                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                    
+                    # If event from handle, calculate delta from global positions
+                    if any(source == handle for handle in self.handles):
+                        dx = pos.x() - self.cropOrigin.x()
+                        dy = pos.y() - self.cropOrigin.y()
+                        self.cropOrigin = pos
+                    else:
+                        dx = pos.x() - self.cropOrigin.x()
+                        dy = pos.y() - self.cropOrigin.y()
+                        self.cropOrigin = pos
+                    
+                    # Create new geometry based on which handle is being dragged
+                    newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                    
+                    if self.activeHandle == 0:  # Top-left
+                        newRect.setLeft(x + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle == 1:  # Top-center
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle == 2:  # Top-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle == 3:  # Middle-right
+                        newRect.setRight(x + w + dx)
+                    elif self.activeHandle == 4:  # Bottom-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle == 5:  # Bottom-center
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle == 6:  # Bottom-left
+                        newRect.setLeft(x + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle == 7:  # Middle-left
+                        newRect.setLeft(x + dx)
+                    
+                    # Ensure we have a valid rect (positive width and height)
+                    normalizedRect = newRect.normalized()
+                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                        self.cropSelectionWidget.setGeometry(normalizedRect)
                 
-                # Create new geometry based on which handle is being dragged
-                newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                # Update the positions of all handles
+                self.updateHandlePositions()
+                    
+                # Show confirm/cancel buttons when a selection exists
+                if self.cropSelectionWidget.width() > 10 and self.cropSelectionWidget.height() > 10:
+                    self.confirmCropButton.show()
+                    self.cancelCropButton.show()
                 
-                if self.activeHandle == 0:  # Top-left
-                    newRect.setLeft(x + dx)
-                    newRect.setTop(y + dy)
-                elif self.activeHandle == 1:  # Top-center
-                    newRect.setTop(y + dy)
-                elif self.activeHandle == 2:  # Top-right
-                    newRect.setRight(x + w + dx)
-                    newRect.setTop(y + dy)
-                elif self.activeHandle == 3:  # Middle-right
-                    newRect.setRight(x + w + dx)
-                elif self.activeHandle == 4:  # Bottom-right
-                    newRect.setRight(x + w + dx)
-                    newRect.setBottom(y + h + dy)
-                elif self.activeHandle == 5:  # Bottom-center
-                    newRect.setBottom(y + h + dy)
-                elif self.activeHandle == 6:  # Bottom-left
-                    newRect.setLeft(x + dx)
-                    newRect.setBottom(y + h + dy)
-                elif self.activeHandle == 7:  # Middle-left
-                    newRect.setLeft(x + dx)
+                return True
                 
-                # Ensure we have a valid rect (positive width and height)
-                normalizedRect = newRect.normalized()
-                if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                    self.cropSelectionWidget.setGeometry(normalizedRect)
+            # Mouse release event - finalize the current operation
+            elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton:
+                # If we created a selection, make sure it's valid
+                if self.cropDragMode == "create":
+                    if self.cropSelectionWidget.width() < 10 or self.cropSelectionWidget.height() < 10:
+                        # Too small, hide it
+                        self.cropSelectionWidget.hide()
+                        self.confirmCropButton.hide()
+                        self.cancelCropButton.hide()
+                    else:
+                        # Good selection, show handles
+                        self.updateHandlePositions()
+                        for handle in self.handles:
+                            handle.show()
+                    
+                # Reset drag state
+                self.cropDragMode = None
+                self.activeHandle = None
+                
+                return True
             
-            # Update the positions of all handles
-            self.updateHandlePositions()
-                
-            # Show confirm/cancel buttons when a selection exists
-            if self.cropSelectionWidget.width() > 10 and self.cropSelectionWidget.height() > 10:
-                self.confirmCropButton.show()
-                self.cancelCropButton.show()
-                
-            return True
+            return super().eventFilter(source, event)
             
-        # Mouse release event - finalize the current operation
-        elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton:
-            # If we created a selection, make sure it's valid
-            if self.cropDragMode == "create":
-                if self.cropSelectionWidget.width() < 10 or self.cropSelectionWidget.height() < 10:
-                    # Too small, hide it
-                    self.cropSelectionWidget.hide()
-                    self.confirmCropButton.hide()
-                    self.cancelCropButton.hide()
-                else:
-                    # Good selection, show handles
-                    self.updateHandlePositions()
-                    for handle in self.handles:
+        # Handle 3D crop events
+        elif hasattr(self, 'in3DCropMode') and self.in3DCropMode:
+            # Check if event is from one of our 3D handles (direct handle click)
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                for i, handle in enumerate(self.handles3D):
+                    if handle.isVisible() and source == handle:
+                        self.crop3DDragMode = "resize"
+                        self.activeHandle3D = i
+                        self.crop3DOrigin = event.globalPos()
+                        return True
+                
+            # Mouse press on the viewport
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirm3DCropButton and source != self.cancel3DCropButton:
+                pos = event.pos()
+                
+                # Check if we're clicking on a handle
+                for i, handle in enumerate(self.handles3D):
+                    if handle.isVisible() and handle.geometry().contains(pos):
+                        self.crop3DDragMode = "resize"
+                        self.activeHandle3D = i
+                        self.crop3DOrigin = pos
+                        return True
+                        
+                # Check if we're on the selection widget
+                if self.crop3DSelectionWidget.isVisible() and self.crop3DSelectionWidget.geometry().contains(pos):
+                    self.crop3DDragMode = "move"
+                    self.crop3DOrigin = pos
+                    self.move3DOffset = pos - self.crop3DSelectionWidget.pos()
+                    return True
+                    
+                # Otherwise start creating a new selection
+                self.crop3DDragMode = "create"
+                self.crop3DOrigin = pos
+                self.crop3DSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+                self.crop3DSelectionWidget.show()
+                
+                # Hide handles when creating a new selection
+                for handle in self.handles3D:
+                    handle.hide()
+                    
+                self.confirm3DCropButton.hide()
+                self.cancel3DCropButton.hide()
+                return True
+                
+            # Mouse move event - update selection, position or size
+            elif event.type() == QtCore.QEvent.MouseMove:
+                if self.crop3DOrigin is None:
+                    return super().eventFilter(source, event)
+                    
+                pos = event.pos()
+                
+                # If the event is from a handle, use global position
+                if any(source == handle for handle in self.handles3D):
+                    pos = event.globalPos()
+                    
+                if self.crop3DDragMode == "create":
+                    # Creating a new selection
+                    self.crop3DSelectionWidget.setGeometry(QtCore.QRect(self.crop3DOrigin, pos).normalized())
+                    
+                elif self.crop3DDragMode == "move":
+                    # Moving the selection
+                    newPos = pos - self.move3DOffset
+                    self.crop3DSelectionWidget.move(newPos)
+                    
+                elif self.crop3DDragMode == "resize" and self.activeHandle3D is not None:
+                    # Resizing using a handle
+                    rect = self.crop3DSelectionWidget.geometry()
+                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                    
+                    # If event from handle, calculate delta from global positions
+                    if any(source == handle for handle in self.handles3D):
+                        dx = pos.x() - self.crop3DOrigin.x()
+                        dy = pos.y() - self.crop3DOrigin.y()
+                        self.crop3DOrigin = pos
+                    else:
+                        dx = pos.x() - self.crop3DOrigin.x()
+                        dy = pos.y() - self.crop3DOrigin.y()
+                        self.crop3DOrigin = pos
+                    
+                    # Create new geometry based on which handle is being dragged
+                    newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                    
+                    if self.activeHandle3D == 0:  # Top-left
+                        newRect.setLeft(x + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle3D == 1:  # Top-center
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle3D == 2:  # Top-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandle3D == 3:  # Middle-right
+                        newRect.setRight(x + w + dx)
+                    elif self.activeHandle3D == 4:  # Bottom-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle3D == 5:  # Bottom-center
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle3D == 6:  # Bottom-left
+                        newRect.setLeft(x + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandle3D == 7:  # Middle-left
+                        newRect.setLeft(x + dx)
+                    
+                    # Ensure we have a valid rect (positive width and height)
+                    normalizedRect = newRect.normalized()
+                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                        self.crop3DSelectionWidget.setGeometry(normalizedRect)
+                
+                # Update the positions of all handles
+                self.updateHandle3DPositions()
+                    
+                # Show confirm/cancel buttons when a selection exists
+                if self.crop3DSelectionWidget.width() > 10 and self.crop3DSelectionWidget.height() > 10:
+                    self.confirm3DCropButton.show()
+                    self.cancel3DCropButton.show()
+                    
+                    # Show handles
+                    for handle in self.handles3D:
                         handle.show()
+                
+                return True
+                
+            # Mouse release event - end of drag/resize/create
+            elif event.type() == QtCore.QEvent.MouseButtonRelease:
+                if self.crop3DDragMode is not None:
+                    # Update handle positions one final time
+                    self.updateHandle3DPositions()
+                    
+                    # Reset drag state
+                    self.crop3DDragMode = None
+                    self.activeHandle3D = None
+                    
+                    # Track current slice as end slice
+                    if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
+                        self.end_z_slice = self.volumetric_handler.current_slice
+                    
+                    return True
             
-            # Reset drag state
-            self.cropDragMode = None
-            self.activeHandle = None
+            # Slice change event - track the Z range
+            elif event.type() == QtCore.QEvent.KeyPress:
+                if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
+                    # Update start/end slice based on current slice
+                    current_slice = self.volumetric_handler.current_slice
+                    if hasattr(self, 'start_z_slice') and hasattr(self, 'end_z_slice'):
+                        if current_slice < self.start_z_slice:
+                            self.start_z_slice = current_slice
+                        elif current_slice > self.end_z_slice:
+                            self.end_z_slice = current_slice
             
-            return True
-            
+        # Default event handling
         return super().eventFilter(source, event)
+
+    def crop3DSelectedArea(self):
+        """Activate the 3D crop tool to crop a selection of volumetric data across Z slices."""
+        # Check if we have an active window
+        if not self.activeMdiChild:
+            return
+            
+        # Check if the active window contains volumetric data
+        activeChild = self.activeMdiChild
+        if not hasattr(activeChild, 'is_volumetric') or not activeChild.is_volumetric:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Not Volumetric Data",
+                "3D crop can only be used with volumetric data (multi-page TIFF files)."
+            )
+            return
+            
+        # Enter 3D crop mode
+        self.in3DCropMode = True
+        
+        # Store volumetric handler reference
+        self.volumetric_handler = activeChild.volumetric_handler
+        
+        # Get the viewport for overlay UI elements
+        viewport = activeChild.viewport
+        if not viewport:
+            return
+            
+        # Create selection widget (transparent rectangle)
+        self.crop3DSelectionWidget = QtWidgets.QWidget(viewport)
+        self.crop3DSelectionWidget.setStyleSheet("background-color: rgba(0, 120, 215, 40); border: 1px solid rgba(0, 120, 215, 160);")
+        self.crop3DSelectionWidget.hide()
+        
+        # Create resize handles (small squares at corners and sides)
+        self.handles3D = []
+        for i in range(8):  # 8 handles: 4 corners and 4 sides
+            handle = QtWidgets.QWidget(viewport)
+            handle.setFixedSize(10, 10)
+            handle.setStyleSheet("background-color: rgba(0, 120, 215, 255); border: none;")
+            handle.hide()
+            self.handles3D.append(handle)
+            
+        # Create confirm and cancel buttons
+        self.confirm3DCropButton = ViewerButton(style="trigger")
+        self.confirm3DCropButton.setIcon(":/icons/check.svg")
+        self.confirm3DCropButton.setToolTip("Confirm crop")
+        self.confirm3DCropButton.setParent(viewport)
+        self.confirm3DCropButton.clicked.connect(self.show3DCropDialog)
+        self.confirm3DCropButton.hide()
+        
+        self.cancel3DCropButton = ViewerButton(style="trigger-severe")
+        self.cancel3DCropButton.setIcon(":/icons/close.svg")
+        self.cancel3DCropButton.setToolTip("Cancel crop")
+        self.cancel3DCropButton.setParent(viewport)
+        self.cancel3DCropButton.clicked.connect(self.cancel3DCrop)
+        self.cancel3DCropButton.hide()
+        
+        # Position the buttons initially at the bottom right of the viewport
+        viewportRect = viewport.rect()
+        self.confirm3DCropButton.move(viewportRect.width() - 80, viewportRect.height() - 40)
+        self.cancel3DCropButton.move(viewportRect.width() - 40, viewportRect.height() - 40)
+        
+        # Reset variables for drag operations
+        self.crop3DDragMode = None
+        self.activeHandle3D = None
+        self.crop3DOrigin = None
+        self.move3DOffset = None
+        
+        # Store start Z slice (defaults to current)
+        self.start_z_slice = self.volumetric_handler.current_slice
+        self.end_z_slice = self.volumetric_handler.current_slice
+        
+        # Install event filter to handle mouse events
+        viewport.installEventFilter(self)
+        
+        # Enable slice controls for selecting Z range
+        activeChild.set_slice_controls_visible(True)
+        
+        # Display instructions
+        self.statusBar().showMessage("Select an area to crop in 3D. Navigate through slices to set the Z range.")
+
+    def updateHandle3DPositions(self):
+        """Update the positions of the 3D crop handles around the selection widget."""
+        if not hasattr(self, 'crop3DSelectionWidget') or not self.crop3DSelectionWidget:
+            return
+            
+        # Get the current geometry of the selection widget
+        rect = self.crop3DSelectionWidget.geometry()
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        
+        # Define positions for the 8 handles
+        handle_size = 10
+        half_handle = handle_size // 2
+        
+        positions = [
+            (x - half_handle, y - half_handle),                  # Top-left
+            (x + w // 2 - half_handle, y - half_handle),         # Top-center
+            (x + w - half_handle, y - half_handle),              # Top-right
+            (x + w - half_handle, y + h // 2 - half_handle),     # Middle-right
+            (x + w - half_handle, y + h - half_handle),          # Bottom-right
+            (x + w // 2 - half_handle, y + h - half_handle),     # Bottom-center
+            (x - half_handle, y + h - half_handle),              # Bottom-left
+            (x - half_handle, y + h // 2 - half_handle)          # Middle-left
+        ]
+        
+        # Position handles
+        for i, handle in enumerate(self.handles3D):
+            handle.move(positions[i][0], positions[i][1])
+            
+        # Position confirm/cancel buttons near bottom-right corner of selection
+        buttonMargin = 5
+        buttonSize = 30  # ViewerButton's default size
+        
+        self.confirm3DCropButton.move(
+            x + w + buttonMargin,
+            y + h - buttonSize
+        )
+        self.cancel3DCropButton.move(
+            x + w + buttonMargin + buttonSize + buttonMargin,
+            y + h - buttonSize
+        )
+
+    def show3DCropDialog(self):
+        """Show dialog to configure and execute 3D crop."""
+        # Check if we have an active window and a valid crop selection
+        if not self.activeMdiChild or not hasattr(self, 'crop3DSelectionWidget') or not self.crop3DSelectionWidget.isVisible():
+            return
+            
+        # Create dialog
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("3D Crop Configuration")
+        dialog.setMinimumWidth(400)
+        
+        # Create form layout
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        # Z slice range group
+        z_range_group = QtWidgets.QGroupBox("Z Slice Range")
+        z_range_layout = QtWidgets.QVBoxLayout()
+        
+        # All slices option
+        all_slices_radio = QtWidgets.QRadioButton("All slices")
+        all_slices_radio.setChecked(True)
+        z_range_layout.addWidget(all_slices_radio)
+        
+        # Custom range option
+        custom_range_radio = QtWidgets.QRadioButton("Custom range:")
+        z_range_layout.addWidget(custom_range_radio)
+        
+        # Custom range selection
+        range_layout = QtWidgets.QHBoxLayout()
+        
+        # Start slice selector
+        start_layout = QtWidgets.QHBoxLayout()
+        start_layout.addWidget(QtWidgets.QLabel("Start:"))
+        start_spinner = QtWidgets.QSpinBox()
+        start_spinner.setMinimum(0)
+        start_spinner.setMaximum(self.volumetric_handler.total_slices - 1)
+        start_spinner.setValue(self.start_z_slice)
+        start_layout.addWidget(start_spinner)
+        range_layout.addLayout(start_layout)
+        
+        # End slice selector
+        end_layout = QtWidgets.QHBoxLayout()
+        end_layout.addWidget(QtWidgets.QLabel("End:"))
+        end_spinner = QtWidgets.QSpinBox()
+        end_spinner.setMinimum(0)
+        end_spinner.setMaximum(self.volumetric_handler.total_slices - 1)
+        end_spinner.setValue(self.end_z_slice)
+        end_layout.addWidget(end_spinner)
+        range_layout.addLayout(end_layout)
+        
+        z_range_layout.addLayout(range_layout)
+        z_range_group.setLayout(z_range_layout)
+        layout.addWidget(z_range_group)
+        
+        # Enable/disable custom range controls based on radio selection
+        def update_range_enabled():
+            enabled = custom_range_radio.isChecked()
+            start_spinner.setEnabled(enabled)
+            end_spinner.setEnabled(enabled)
+        
+        all_slices_radio.toggled.connect(update_range_enabled)
+        custom_range_radio.toggled.connect(update_range_enabled)
+        update_range_enabled()
+        
+        # Buttons
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        # Show dialog
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # Get selected options
+            use_all_slices = all_slices_radio.isChecked()
+            start_slice = 0 if use_all_slices else start_spinner.value()
+            end_slice = self.volumetric_handler.total_slices - 1 if use_all_slices else end_spinner.value()
+            
+            # Ensure start <= end
+            if start_slice > end_slice:
+                start_slice, end_slice = end_slice, start_slice
+                
+            # Perform 3D crop
+            self.perform3DCrop(start_slice, end_slice)
+        else:
+            # User canceled
+            self.cleanup3DCropTools()
+
+    def perform3DCrop(self, start_slice, end_slice):
+        """Perform the 3D crop operation and save as multi-page TIFF."""
+        # Check if we have an active window and a valid crop selection
+        if not self.activeMdiChild or not hasattr(self, 'crop3DSelectionWidget') or not self.crop3DSelectionWidget.isVisible():
+            return
+            
+        # Get the crop rectangle in viewport coordinates
+        cropRect = self.crop3DSelectionWidget.geometry()
+        
+        # Get the active view and viewport
+        activeChild = self.activeMdiChild
+        activeView = activeChild.view
+        
+        # Convert the crop rectangle to scene coordinates
+        topLeft = activeView.mapToScene(cropRect.topLeft())
+        bottomRight = activeView.mapToScene(cropRect.bottomRight())
+        sceneRect = QtCore.QRectF(topLeft, bottomRight)
+        
+        # Get the image item from the scene
+        scene = activeView.scene()
+        if not scene:
+            self.cancel3DCrop()
+            return
+            
+        # Find the pixmap item in the scene
+        pixmapItem = None
+        for item in scene.items():
+            if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                pixmapItem = item
+                break
+                
+        if not pixmapItem:
+            self.cancel3DCrop()
+            return
+            
+        # Convert scene coordinates to pixmap coordinates
+        itemRect = pixmapItem.mapFromScene(sceneRect).boundingRect()
+        
+        # Open save file dialog
+        filepath, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save 3D Crop as Multi-page TIFF",
+            os.path.dirname(self.volumetric_handler.filepath),
+            "TIFF files (*.tif *.tiff)"
+        )
+        
+        if not filepath:
+            # User canceled
+            self.cleanup3DCropTools()
+            return
+            
+        # Add .tif extension if not present
+        if not filepath.lower().endswith(('.tif', '.tiff')):
+            filepath += '.tif'
+            
+        # Show loading grayout
+        self.display_loading_grayout(True, "Processing 3D crop...")
+        
+        try:
+            # Import PIL here to avoid circular imports
+            from PIL import Image
+            import numpy as np
+            
+            # Extract the selected region from each slice
+            crop_rect = itemRect.toRect()
+            
+            # Open the source file for reading
+            with Image.open(self.volumetric_handler.filepath) as source:
+                # Get the first image to determine shape, mode, etc.
+                source.seek(start_slice)
+                first_img = source.copy()
+                mode = first_img.mode
+                
+                # Crop the first image
+                cropped_first = first_img.crop((crop_rect.x(), crop_rect.y(), 
+                                               crop_rect.x() + crop_rect.width(), 
+                                               crop_rect.y() + crop_rect.height()))
+                
+                # Prepare list for all slices
+                cropped_slices = [cropped_first]
+                
+                # Process remaining slices
+                for i in range(start_slice + 1, end_slice + 1):
+                    # Update status with progress
+                    progress_pct = int((i - start_slice) / (end_slice - start_slice + 1) * 100)
+                    self.display_loading_grayout(True, f"Processing 3D crop... {progress_pct}%")
+                    
+                    # Get the slice
+                    source.seek(i)
+                    img = source.copy()
+                    
+                    # Crop the slice
+                    cropped = img.crop((crop_rect.x(), crop_rect.y(), 
+                                       crop_rect.x() + crop_rect.width(), 
+                                       crop_rect.y() + crop_rect.height()))
+                                       
+                    cropped_slices.append(cropped)
+                
+                # Save as multi-page TIFF
+                cropped_first.save(
+                    filepath,
+                    save_all=True,
+                    append_images=cropped_slices[1:],
+                    format='TIFF',
+                    compression='tiff_deflate'
+                )
+                
+            # Show success message
+            self.display_loading_grayout(True, f"3D crop saved successfully: {filepath}")
+            QtCore.QTimer.singleShot(2000, lambda: self.display_loading_grayout(False))
+            
+        except Exception as e:
+            # Show error message
+            self.display_loading_grayout(False)
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error Saving 3D Crop",
+                f"An error occurred while saving the 3D crop:\n{str(e)}"
+            )
+            
+        # Clean up
+        self.cleanup3DCropTools()
+        
+    def cancel3DCrop(self):
+        """Cancel the 3D crop operation."""
+        self.cleanup3DCropTools()
+        self.statusBar().showMessage("3D crop canceled", 2000)
+        
+    def cleanup3DCropTools(self):
+        """Clean up all 3D crop-related UI elements and state."""
+        # Exit 3D crop mode
+        self.in3DCropMode = False
+        
+        # Clean up crop selection widget
+        if hasattr(self, 'crop3DSelectionWidget') and self.crop3DSelectionWidget:
+            try:
+                self.crop3DSelectionWidget.hide()
+                self.crop3DSelectionWidget.setParent(None)
+                self.crop3DSelectionWidget.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.crop3DSelectionWidget = None
+            
+        # Clean up handles
+        if hasattr(self, 'handles3D'):
+            for handle in self.handles3D:
+                if handle:
+                    try:
+                        handle.hide()
+                        handle.setParent(None)
+                        handle.deleteLater()
+                    except RuntimeError:
+                        # Object might already be deleted
+                        pass
+            self.handles3D = []
+            
+        # Clean up buttons
+        if hasattr(self, 'confirm3DCropButton') and self.confirm3DCropButton:
+            try:
+                self.confirm3DCropButton.hide()
+                self.confirm3DCropButton.setParent(None)
+                self.confirm3DCropButton.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.confirm3DCropButton = None
+            
+        if hasattr(self, 'cancel3DCropButton') and self.cancel3DCropButton:
+            try:
+                self.cancel3DCropButton.hide()
+                self.cancel3DCropButton.setParent(None)
+                self.cancel3DCropButton.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.cancel3DCropButton = None
+            
+        # Clean up drag variables
+        self.crop3DDragMode = None
+        self.activeHandle3D = None
+        self.crop3DOrigin = None
+        self.move3DOffset = None
+        
+        # Clean up z range variables
+        self.start_z_slice = None
+        self.end_z_slice = None
 
 
 
