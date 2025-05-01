@@ -265,3 +265,63 @@ The 3D Crop feature allows users to extract a specific XY region across multiple
 1. Users can successfully select a 3D region (XY area across Z slices)
 2. The cropped region can be saved as a multi-page TIFF
 3. The saved file accurately represents the selected data from the original source
+
+# Profile Tool Requirements
+
+## Overview
+The Profile Tool allows users to analyze pixel values along a user-defined line across images, enabling quantitative comparison of intensity profiles across multiple images.
+
+## Detailed Requirements
+
+### User Interface
+1. Add a new menu item "Profile" under the Tools menu in the context menu
+2. Implement a line drawing interface that allows users to:
+   - Draw a line on the image by clicking and dragging
+   - Adjust the line position using handles at both endpoints
+   - See real-time updates of the profile as the line position changes
+
+### Line Selection Tool
+1. Interactive line drawing tool with:
+   - Clear visual feedback during line drawing
+   - Handles at both endpoints for adjustment
+   - Ability to drag the entire line
+   - Visual indication of the active line
+
+### Profile Display
+1. Graph window showing:
+   - X-axis: Position along the line (in pixels)
+   - Y-axis: Pixel values
+   - Multiple profiles overlaid when multiple images are open
+   - Different colors for each image's profile
+   - Legend identifying each profile
+2. Real-time updates when:
+   - Line position is adjusted
+   - Line endpoints are moved
+   - Image content changes
+
+### Multi-Image Support
+1. Synchronized display of profiles from multiple images:
+   - Same line position across all synchronized views
+   - Overlaid profiles in the same graph for easy comparison
+   - Consistent color coding between images and their profiles
+2. Support for different image types:
+   - Grayscale images
+   - Color images (separate profiles for each channel)
+   - Volumetric images (profile at current Z-slice)
+
+### Technical Requirements
+1. Efficient calculation of pixel values along the line using interpolation
+2. Smooth updating of the profile display during line adjustments
+3. Proper handling of image boundaries and out-of-bounds conditions
+4. Support for high bit-depth images and different data types
+
+### Export Capabilities
+1. Ability to export profile data as CSV
+2. Option to save profile graph as image
+3. Copy profile data to clipboard
+
+## Success Criteria
+1. Users can easily draw and adjust profile lines
+2. Profile display updates smoothly during line adjustments
+3. Multiple profiles can be effectively compared
+4. Profile data accurately represents image pixel values

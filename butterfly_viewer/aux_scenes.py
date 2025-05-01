@@ -11,10 +11,13 @@ Creates the base (main) scene of the SplitView for the Butterfly Viewer and Regi
 
 
 from PyQt5 import QtCore, QtWidgets
+import os
+import numpy as np
 
 from aux_comments import CommentItem
 from aux_rulers import RulerItem
 from aux_dialogs import PixelUnitConversionInputDialog
+from aux_profile import ProfileLine, ProfileDialog, get_profile_values
 
 
 
@@ -40,6 +43,11 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
         self.px_per_unit_conversion_set = False
         self.relative_origin_position = "bottomleft"
         self.single_transform_mode_smooth = False
+
+        # Add profile tool support
+        self.profile_line = None
+        self.profile_dialog = None
+        self.in_profile_mode = False
 
         self.background_colors = [["Dark gray (default)", 32, 32, 32],
                                   ["White", 255, 255, 255],
@@ -75,6 +83,9 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     right_click_crop3D = QtCore.pyqtSignal()  # New signal for 3D crop functionality
     right_click_crop_sync = QtCore.pyqtSignal()  # 새로운 시그널 추가
     
+    # Add new signal for profile line changes
+    profile_line_changed = QtCore.pyqtSignal()
+
     def contextMenuEvent(self, event):
         """Override the event of the context menu (right-click menu)  to display options.
 
@@ -142,6 +153,15 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             action_comment = menu_image.addAction("Comment")
             action_comment.setToolTip("Add a draggable text comment here")
             action_comment.triggered.connect(lambda: self.right_click_comment.emit(scene_pos))
+            
+            # Add Tools menu
+            menu_tools = QtWidgets.QMenu("Tools")
+            menu.addMenu(menu_tools)
+            
+            # Add Profile action
+            action_profile = menu_tools.addAction("Profile")
+            action_profile.setToolTip("Draw a line to show pixel value profile")
+            action_profile.triggered.connect(lambda: self.start_profile_tool(scene_pos))
             
             # Add crop action to Image menu
             action_crop = menu_image.addAction("Crop")
@@ -368,3 +388,171 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     def sync_zoom_by_lambda(self, by):
         """Within lambda, set sync zoom by str."""
         self.sync_zoom_by = by
+
+    def start_profile_tool(self, pos):
+        """Start the profile tool at the given position.
+        
+        Args:
+            pos: QPointF with initial position
+        """
+        if not self.in_profile_mode:
+            self.in_profile_mode = True
+            
+            # Create initial line
+            offset = 50  # Initial line length
+            self.profile_line = ProfileLine(pos.x(), pos.y(), 
+                                         pos.x() + offset, pos.y())
+            self.addItem(self.profile_line)
+            
+            # Create profile dialog if it doesn't exist
+            if not self.profile_dialog:
+                self.profile_dialog = ProfileDialog()
+                self.profile_line_changed.connect(self.update_profile)
+            
+            # Show dialog
+            self.profile_dialog.show()
+            
+            # Synchronize line in other views
+            self.sync_profile_line_to_all_views()
+            
+            # Update profile
+            self.update_profile()
+    
+    def sync_profile_line_to_all_views(self):
+        """Create synchronized profile lines in all other views."""
+        if not self.profile_line:
+            return
+            
+        # Get main window
+        main_window = self.views()[0].window()
+        if not hasattr(main_window, '_mdiArea'):
+            return
+            
+        # Get all subwindows
+        windows = main_window._mdiArea.subWindowList()
+        
+        # Get current line geometry
+        line = self.profile_line.line()
+        start_point = (line.x1(), line.y1())
+        end_point = (line.x2(), line.y2())
+        
+        for window in windows:
+            child = window.widget()
+            if not child:
+                continue
+                
+            # Get the scene
+            if hasattr(child, '_scene_main_topleft'):
+                scene = child._scene_main_topleft
+                if scene != self and not scene.profile_line:  # Don't create in source scene
+                    # Create synchronized line
+                    scene.profile_line = ProfileLine(start_point[0], start_point[1],
+                                                   end_point[0], end_point[1])
+                    scene.addItem(scene.profile_line)
+                    scene.in_profile_mode = True
+                    
+                    # Share the same profile dialog
+                    scene.profile_dialog = self.profile_dialog
+                    scene.profile_line_changed.connect(scene.update_profile)
+    
+    def sync_profile_line_position(self, source_line):
+        """Synchronize profile line position to all other views.
+        
+        Args:
+            source_line: The ProfileLine that was moved/changed
+        """
+        # Get main window
+        main_window = self.views()[0].window()
+        if not hasattr(main_window, '_mdiArea'):
+            return
+            
+        # Get all subwindows
+        windows = main_window._mdiArea.subWindowList()
+        
+        # Get source line geometry
+        line = source_line.line()
+        
+        for window in windows:
+            child = window.widget()
+            if not child:
+                continue
+                
+            # Get the scene
+            if hasattr(child, '_scene_main_topleft'):
+                scene = child._scene_main_topleft
+                if scene != self and scene.profile_line:  # Update only other scenes with profile lines
+                    # Update line position
+                    scene.profile_line.setLine(line)
+                    scene.profile_line.updateHandles()
+    
+    def update_profile(self):
+        """Update the profile display."""
+        if not self.profile_line or not self.profile_dialog:
+            return
+            
+        # Get line endpoints in scene coordinates
+        line = self.profile_line.line()
+        start_point = (line.x1(), line.y1())
+        end_point = (line.x2(), line.y2())
+        
+        # Get all views
+        profiles = []
+        labels = []
+        
+        # Get main window
+        main_window = self.views()[0].window()
+        if hasattr(main_window, '_mdiArea'):
+            # Get all subwindows
+            windows = main_window._mdiArea.subWindowList()
+            
+            for window in windows:
+                child = window.widget()
+                if not child:
+                    continue
+                
+                # Get the image data
+                if hasattr(child, '_pixmapItem_main_topleft'):
+                    pixmap = child._pixmapItem_main_topleft.pixmap()
+                    if not pixmap.isNull():
+                        # Convert QPixmap to numpy array
+                        image = pixmap.toImage()
+                        width = image.width()
+                        height = image.height()
+                        ptr = image.bits()
+                        ptr.setsize(height * width * 4)
+                        arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+                        
+                        # Get profile values
+                        profile = get_profile_values(arr, start_point, end_point)
+                        profiles.append(profile)
+                        
+                        # Get window title for label
+                        labels.append(os.path.basename(child.currentFile))
+        
+        # Update profile dialog
+        if profiles:
+            self.profile_dialog.update_profile(profiles, labels)
+    
+    def cleanup_profile_tool(self):
+        """Clean up profile tool resources."""
+        # Get main window
+        main_window = self.views()[0].window()
+        if hasattr(main_window, '_mdiArea'):
+            # Clean up profile lines in all views
+            windows = main_window._mdiArea.subWindowList()
+            for window in windows:
+                child = window.widget()
+                if not child:
+                    continue
+                    
+                if hasattr(child, '_scene_main_topleft'):
+                    scene = child._scene_main_topleft
+                    if scene.profile_line:
+                        scene.removeItem(scene.profile_line)
+                        scene.profile_line = None
+                        scene.in_profile_mode = False
+        
+        # Close profile dialog
+        if self.profile_dialog:
+            self.profile_dialog.close()
+            self.profile_dialog = None
