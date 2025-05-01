@@ -45,7 +45,7 @@ os.environ["QT_SCALE_FACTOR"]             = "1"
 COMPANY = "Mir Software"
 DOMAIN = "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 APPNAME = "Butterfly Viewer for Volumetric Images"
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 
 SETTING_RECENTFILELIST = "recentfilelist"
 SETTING_LAST_DIRECTORY = "lastdirectory"
