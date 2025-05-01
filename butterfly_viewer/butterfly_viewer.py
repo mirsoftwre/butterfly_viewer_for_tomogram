@@ -4395,7 +4395,7 @@ def main():
     app.setWindowIcon(QtGui.QIcon(":/icons/icon.png"))
 
     mainWin = MultiViewMainWindow()
-    mainWin.setWindowTitle(APPNAME)
+    mainWin.setWindowTitle(APPNAME + " v" + VERSION) #Show app name with version
 
     # Load any predefined images:
     if args.paths:
