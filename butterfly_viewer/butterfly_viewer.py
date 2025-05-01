@@ -1750,17 +1750,23 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         
         # Connect the 3D crop signal from context menu
         child._scene_main_topleft.right_click_crop3D.connect(self.crop3DSelectedArea)
+
+        # Connect the crop sync signal from context menu
+        child._scene_main_topleft.right_click_crop_sync.connect(self.crop_sync_selected_area)
         
         # We need to check if these scenes exist and connect their crop signals too
         if hasattr(child, '_scene_topright'):
             child._scene_topright.right_click_crop.connect(self.cropSelectedArea)
             child._scene_topright.right_click_crop3D.connect(self.crop3DSelectedArea)
+            child._scene_topright.right_click_crop_sync.connect(self.crop_sync_selected_area)
         if hasattr(child, '_scene_bottomleft'):
             child._scene_bottomleft.right_click_crop.connect(self.cropSelectedArea)
             child._scene_bottomleft.right_click_crop3D.connect(self.crop3DSelectedArea)
+            child._scene_bottomleft.right_click_crop_sync.connect(self.crop_sync_selected_area)
         if hasattr(child, '_scene_bottomright'):
             child._scene_bottomright.right_click_crop.connect(self.cropSelectedArea)
             child._scene_bottomright.right_click_crop3D.connect(self.crop3DSelectedArea)
+            child._scene_bottomright.right_click_crop_sync.connect(self.crop_sync_selected_area)
 
         return child
 
@@ -3035,8 +3041,10 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
     def cleanupCropTools(self):
         """Clean up all crop-related UI elements and state."""
-        # Exit crop mode
+        # Exit all crop modes
         self.inCropMode = False
+        self.in3DCropMode = False
+        self.inCropSyncMode = False
         
         # Clean up crop selection widget
         if hasattr(self, 'cropSelectionWidget') and self.cropSelectionWidget:
@@ -3488,6 +3496,149 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                         elif current_slice > self.end_z_slice:
                             self.end_z_slice = current_slice
             
+        # Handle sync crop events
+        elif hasattr(self, 'inCropSyncMode') and self.inCropSyncMode:
+            # Check if event is from one of our sync handles (direct handle click)
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                for i, handle in enumerate(self.handlesCropSync):
+                    if handle.isVisible() and source == handle:
+                        self.cropSyncDragMode = "resize"
+                        self.activeHandleCropSync = i
+                        self.cropSyncOrigin = event.globalPos()
+                        return True
+                
+            # Mouse press on the viewport
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirmCropSyncButton and source != self.cancelCropSyncButton:
+                pos = event.pos()
+                
+                # Check if we're clicking on a handle
+                for i, handle in enumerate(self.handlesCropSync):
+                    if handle.isVisible() and handle.geometry().contains(pos):
+                        self.cropSyncDragMode = "resize"
+                        self.activeHandleCropSync = i
+                        self.cropSyncOrigin = pos
+                        return True
+                        
+                # Check if we're on the selection widget
+                if self.cropSyncSelectionWidget.isVisible() and self.cropSyncSelectionWidget.geometry().contains(pos):
+                    self.cropSyncDragMode = "move"
+                    self.cropSyncOrigin = pos
+                    self.moveCropSyncOffset = pos - self.cropSyncSelectionWidget.pos()
+                    return True
+                    
+                # Otherwise start creating a new selection
+                self.cropSyncDragMode = "create"
+                self.cropSyncOrigin = pos
+                self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+                self.cropSyncSelectionWidget.show()
+                
+                # Hide handles when creating a new selection
+                for handle in self.handlesCropSync:
+                    handle.hide()
+                    
+                self.confirmCropSyncButton.hide()
+                self.cancelCropSyncButton.hide()
+                return True
+                
+            # Mouse move event - update selection, position or size
+            elif event.type() == QtCore.QEvent.MouseMove:
+                if self.cropSyncOrigin is None:
+                    return super().eventFilter(source, event)
+                    
+                pos = event.pos()
+                
+                # If the event is from a handle, use global position
+                if any(source == handle for handle in self.handlesCropSync):
+                    pos = event.globalPos()
+                    
+                if self.cropSyncDragMode == "create":
+                    # Creating a new selection
+                    self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(self.cropSyncOrigin, pos).normalized())
+                    
+                elif self.cropSyncDragMode == "move":
+                    # Moving the selection
+                    newPos = pos - self.moveCropSyncOffset
+                    self.cropSyncSelectionWidget.move(newPos)
+                    
+                elif self.cropSyncDragMode == "resize" and self.activeHandleCropSync is not None:
+                    # Resizing using a handle
+                    rect = self.cropSyncSelectionWidget.geometry()
+                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                    
+                    # If event from handle, calculate delta from global positions
+                    if any(source == handle for handle in self.handlesCropSync):
+                        dx = pos.x() - self.cropSyncOrigin.x()
+                        dy = pos.y() - self.cropSyncOrigin.y()
+                        self.cropSyncOrigin = pos
+                    else:
+                        dx = pos.x() - self.cropSyncOrigin.x()
+                        dy = pos.y() - self.cropSyncOrigin.y()
+                        self.cropSyncOrigin = pos
+                    
+                    # Create new geometry based on which handle is being dragged
+                    newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                    
+                    if self.activeHandleCropSync == 0:  # Top-left
+                        newRect.setLeft(x + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandleCropSync == 1:  # Top-center
+                        newRect.setTop(y + dy)
+                    elif self.activeHandleCropSync == 2:  # Top-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeHandleCropSync == 3:  # Middle-right
+                        newRect.setRight(x + w + dx)
+                    elif self.activeHandleCropSync == 4:  # Bottom-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandleCropSync == 5:  # Bottom-center
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandleCropSync == 6:  # Bottom-left
+                        newRect.setLeft(x + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeHandleCropSync == 7:  # Middle-left
+                        newRect.setLeft(x + dx)
+                    
+                    # Ensure we have a valid rect (positive width and height)
+                    normalizedRect = newRect.normalized()
+                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                        self.cropSyncSelectionWidget.setGeometry(normalizedRect)
+                
+                # Update the positions of all handles
+                self.updateHandleCropSyncPositions()
+                    
+                # Show confirm/cancel buttons when a selection exists
+                if self.cropSyncSelectionWidget.width() > 10 and self.cropSyncSelectionWidget.height() > 10:
+                    self.confirmCropSyncButton.show()
+                    self.cancelCropSyncButton.show()
+                    
+                    # Show handles
+                    for handle in self.handlesCropSync:
+                        handle.show()
+                
+                return True
+                
+            # Mouse release event - finalize the current operation
+            elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton:
+                # If we created a selection, make sure it's valid
+                if self.cropSyncDragMode == "create":
+                    if self.cropSyncSelectionWidget.width() < 10 or self.cropSyncSelectionWidget.height() < 10:
+                        # Too small, hide it
+                        self.cropSyncSelectionWidget.hide()
+                        self.confirmCropSyncButton.hide()
+                        self.cancelCropSyncButton.hide()
+                    else:
+                        # Good selection, show handles
+                        self.updateHandleCropSyncPositions()
+                        for handle in self.handlesCropSync:
+                            handle.show()
+                    
+                # Reset drag state
+                self.cropSyncDragMode = None
+                self.activeHandleCropSync = None
+                
+                return True
+            
         # Default event handling
         return super().eventFilter(source, event)
 
@@ -3888,7 +4039,272 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.start_z_slice = None
         self.end_z_slice = None
 
+    def crop_sync_selected_area(self):
+        """Synchronize the crop selection across all views."""
+        # Check if we have an active window
+        child = self.activeMdiChild
+        if not child:
+            return
+            
+        # Clean up any existing crop selection to avoid memory issues
+        self.cleanupCropTools()
+            
+        # Set the window to crop sync mode
+        self.inCropSyncMode = True
+        
+        # Get the viewport of the active window
+        viewport = child.viewport
+        
+        # Create rubber band
+        self.cropSyncSelectionWidget = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, viewport)
+        
+        # Set handle size
+        self.handleSize = 10
+        
+        # Create handles for the rubber band
+        self.handlesCropSync = []
+        for _ in range(8):  # 8 handles (corners and midpoints)
+            handle = QtWidgets.QLabel(viewport)
+            handle.setFixedSize(self.handleSize, self.handleSize)
+            handle.setStyleSheet("background-color: white; border: 1px solid black;")
+            handle.hide()
+            self.handlesCropSync.append(handle)
+        
+        # Create confirm and cancel buttons with icons
+        self.confirmCropSyncButton = ViewerButton(style="trigger")
+        self.confirmCropSyncButton.setIcon(":/icons/check.svg")
+        self.confirmCropSyncButton.setToolTip("Crop the selected area in all views")
+        self.confirmCropSyncButton.setParent(viewport)
+        self.confirmCropSyncButton.clicked.connect(self.performCropSync)
+        self.confirmCropSyncButton.hide()
+        
+        self.cancelCropSyncButton = ViewerButton(style="trigger-severe")
+        self.cancelCropSyncButton.setIcon(":/icons/close.svg")
+        self.cancelCropSyncButton.setToolTip("Cancel synchronized crop")
+        self.cancelCropSyncButton.setParent(viewport)
+        self.cancelCropSyncButton.clicked.connect(self.cancelCropSync)
+        self.cancelCropSyncButton.hide()
+        
+        # Position the buttons initially at the bottom right of the viewport
+        viewportRect = viewport.rect()
+        self.confirmCropSyncButton.move(viewportRect.width() - 80, viewportRect.height() - 40)
+        self.cancelCropSyncButton.move(viewportRect.width() - 40, viewportRect.height() - 40)
+        
+        # Reset variables for drag operations
+        self.cropSyncDragMode = None
+        self.activeHandleCropSync = None
+        self.cropSyncOrigin = None
+        self.moveCropSyncOffset = None
+        
+        # Install event filter to handle mouse events
+        viewport.installEventFilter(self)
+        
+        # Update status bar
+        self.statusBar().showMessage("Select an area to crop in all views. Click and drag to create a selection.")
 
+    def cancelCropSync(self):
+        """Cancel the synchronized crop operation."""
+        self.cleanupCropSyncTools()
+        self.statusBar().showMessage("Synchronized crop canceled", 2000)
+
+    def cleanupCropSyncTools(self):
+        """Clean up all crop sync-related UI elements and state."""
+        # Exit crop sync mode
+        self.inCropSyncMode = False
+        
+        # Clean up crop selection widget
+        if hasattr(self, 'cropSyncSelectionWidget') and self.cropSyncSelectionWidget:
+            try:
+                self.cropSyncSelectionWidget.hide()
+                self.cropSyncSelectionWidget.setParent(None)
+                self.cropSyncSelectionWidget.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.cropSyncSelectionWidget = None
+        
+        # Clean up handles
+        if hasattr(self, 'handlesCropSync'):
+            for handle in self.handlesCropSync:
+                if handle:
+                    try:
+                        handle.hide()
+                        handle.setParent(None)
+                        handle.deleteLater()
+                    except RuntimeError:
+                        # Object might already be deleted
+                        pass
+            self.handlesCropSync = []
+        
+        # Clean up buttons
+        if hasattr(self, 'confirmCropSyncButton') and self.confirmCropSyncButton:
+            try:
+                self.confirmCropSyncButton.hide()
+                self.confirmCropSyncButton.setParent(None)
+                self.confirmCropSyncButton.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.confirmCropSyncButton = None
+        
+        if hasattr(self, 'cancelCropSyncButton') and self.cancelCropSyncButton:
+            try:
+                self.cancelCropSyncButton.hide()
+                self.cancelCropSyncButton.setParent(None)
+                self.cancelCropSyncButton.deleteLater()
+            except RuntimeError:
+                # Object might already be deleted
+                pass
+            self.cancelCropSyncButton = None
+        
+        # Clean up drag variables
+        self.cropSyncDragMode = None
+        self.activeHandleCropSync = None
+        self.cropSyncOrigin = None
+        self.moveCropSyncOffset = None
+
+    def performCropSync(self):
+        """Perform synchronized crop operation across all views and copy combined image to clipboard."""
+        # Check if we have an active window and a valid crop selection
+        if not self.activeMdiChild or not hasattr(self, 'cropSyncSelectionWidget') or not self.cropSyncSelectionWidget.isVisible():
+            return
+        
+        # Get the crop rectangle in viewport coordinates
+        cropRect = self.cropSyncSelectionWidget.geometry()
+        
+        # Show loading message
+        self.display_loading_grayout(True, "Processing synchronized crop...")
+        
+        try:
+            # Get all windows
+            windows = self._mdiArea.subWindowList()
+            
+            # Create a list to store all cropped pixmaps
+            cropped_pixmaps = []
+            
+            # Process each window
+            for window in windows:
+                child = window.widget()
+                if not child:
+                    continue
+                
+                # Get the view and scene for this window
+                view = child.view
+                scene = view.scene()
+                if not scene:
+                    continue
+                
+                # Convert the crop rectangle to scene coordinates for this view
+                topLeft = view.mapToScene(cropRect.topLeft())
+                bottomRight = view.mapToScene(cropRect.bottomRight())
+                sceneRect = QtCore.QRectF(topLeft, bottomRight)
+                
+                # Find the pixmap item in the scene
+                pixmapItem = None
+                for item in scene.items():
+                    if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                        pixmapItem = item
+                        break
+                        
+                if not pixmapItem:
+                    continue
+                
+                # Convert scene coordinates to pixmap coordinates
+                itemRect = pixmapItem.mapFromScene(sceneRect).boundingRect()
+                
+                # Get the original pixmap
+                pixmap = pixmapItem.pixmap()
+                
+                # Ensure the crop rectangle is within the image bounds
+                pixmapRectF = QtCore.QRectF(pixmap.rect())
+                itemRect = itemRect.intersected(pixmapRectF)
+                
+                # Create a new pixmap with the cropped area
+                croppedPixmap = pixmap.copy(itemRect.toRect())
+                
+                # Store the cropped pixmap
+                cropped_pixmaps.append(croppedPixmap)
+            
+            if cropped_pixmaps:
+                # Calculate the total width and maximum height
+                total_width = sum(pixmap.width() for pixmap in cropped_pixmaps)
+                max_height = max(pixmap.height() for pixmap in cropped_pixmaps)
+                
+                # Create a new pixmap to hold all images horizontally
+                combined_pixmap = QtGui.QPixmap(total_width, max_height)
+                combined_pixmap.fill(QtCore.Qt.transparent)
+                
+                # Create painter
+                painter = QtGui.QPainter(combined_pixmap)
+                
+                # Draw all cropped images side by side
+                x_offset = 0
+                for pixmap in cropped_pixmaps:
+                    # Calculate y position to center vertically if heights differ
+                    y_offset = (max_height - pixmap.height()) // 2
+                    painter.drawPixmap(x_offset, y_offset, pixmap)
+                    x_offset += pixmap.width()
+                
+                painter.end()
+                
+                # Copy the combined image to clipboard
+                clipboard = QtWidgets.QApplication.clipboard()
+                clipboard.setPixmap(combined_pixmap)
+            
+            # Clean up the crop UI
+            self.cleanupCropSyncTools()
+            
+            # Show success message
+            self.display_loading_grayout(True, "Synchronized crop copied to clipboard.")
+            QtCore.QTimer.singleShot(2000, lambda: self.display_loading_grayout(False))
+            
+        except Exception as e:
+            # Show error message
+            self.display_loading_grayout(False)
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error in Synchronized Crop",
+                f"An error occurred while performing the synchronized crop:\n{str(e)}"
+            )
+            self.cleanupCropSyncTools()
+
+    def updateHandleCropSyncPositions(self):
+        """Update the positions of the handles around the synchronized crop selection widget."""
+        if not hasattr(self, 'cropSyncSelectionWidget') or not self.cropSyncSelectionWidget:
+            return
+            
+        # Get the current geometry of the selection widget
+        rect = self.cropSyncSelectionWidget.geometry()
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        
+        # Calculate handle positions
+        positions = [
+            (x, y),                         # 0: Top-left
+            (x + w//2 - self.handleSize//2, y),  # 1: Top-center
+            (x + w - self.handleSize, y),   # 2: Top-right
+            (x + w - self.handleSize, y + h//2 - self.handleSize//2),  # 3: Middle-right
+            (x + w - self.handleSize, y + h - self.handleSize),  # 4: Bottom-right
+            (x + w//2 - self.handleSize//2, y + h - self.handleSize),  # 5: Bottom-center
+            (x, y + h - self.handleSize),   # 6: Bottom-left
+            (x, y + h//2 - self.handleSize//2)  # 7: Middle-left
+        ]
+        
+        # Position handles
+        for i, handle in enumerate(self.handlesCropSync):
+            handle.move(positions[i][0], positions[i][1])
+            
+        # Position confirm/cancel buttons near bottom-right corner of selection
+        buttonMargin = 5
+        buttonSize = 30  # ViewerButton's default size
+        
+        self.confirmCropSyncButton.move(
+            x + w + buttonMargin,
+            y + h - buttonSize
+        )
+        self.cancelCropSyncButton.move(
+            x + w + buttonMargin + buttonSize + buttonMargin,
+            y + h - buttonSize
+        )
 
 def main():
     """Run MultiViewMainWindow as main app.

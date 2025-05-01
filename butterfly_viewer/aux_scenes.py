@@ -73,6 +73,7 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     position_changed_qgraphicsitem = QtCore.pyqtSignal()
     right_click_crop = QtCore.pyqtSignal()  # New signal for crop functionality
     right_click_crop3D = QtCore.pyqtSignal()  # New signal for 3D crop functionality
+    right_click_crop_sync = QtCore.pyqtSignal()  # 새로운 시그널 추가
     
     def contextMenuEvent(self, event):
         """Override the event of the context menu (right-click menu)  to display options.
@@ -146,6 +147,11 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             action_crop = menu_image.addAction("Crop")
             action_crop.setToolTip("Crop the selected area of the image")
             action_crop.triggered.connect(lambda: self.right_click_crop.emit())
+
+            # Add synchronized crop action to Image menu
+            action_crop_sync = menu_image.addAction("Crop (Sync)")
+            action_crop_sync.setToolTip("Crop the selected area in all open images")
+            action_crop_sync.triggered.connect(lambda: self.right_click_crop_sync.emit())
 
             # Add 3D crop action to Image menu
             action_crop3D = menu_image.addAction("3D Crop")
