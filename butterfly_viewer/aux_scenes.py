@@ -172,6 +172,7 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
 
             rulers = [
                 ["Pixel", "pixels", "px"],
+                ["Micrometer", "micrometers", "μm"],
                 ["Millimeter", "millimeters", "mm"],
                 ["Centimeter", "centimeters", "cm"],
                 ["Meter", "meters", "m"],
