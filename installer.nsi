@@ -6,7 +6,7 @@
 !define DESCRIPTION "Image Viewer for Volumetrics Images"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 2
-!define VERSIONBUILD 0
+!define VERSIONBUILD 1
 !define HELPURL "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 !define UPDATEURL "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 !define ABOUTURL "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
