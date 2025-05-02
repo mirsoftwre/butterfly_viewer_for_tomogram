@@ -13,11 +13,27 @@ import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+from aux_buttons import ViewerButton
 
 class ProfileLine(QtWidgets.QGraphicsLineItem):
     """Interactive line item for profile selection."""
     
     def __init__(self, x1, y1, x2, y2, parent=None):
+        # Set minimum line length (in scene coordinates)
+        self.MIN_LINE_LENGTH = 100
+        
+        # Ensure minimum line length
+        dx = x2 - x1
+        dy = y2 - y1
+        current_length = (dx * dx + dy * dy) ** 0.5
+        
+        if current_length < self.MIN_LINE_LENGTH:
+            # Calculate the scaling factor needed to reach minimum length
+            scale = self.MIN_LINE_LENGTH / current_length if current_length > 0 else 1
+            # Extend the line while keeping the start point fixed
+            x2 = x1 + dx * scale
+            y2 = y1 + dy * scale
+        
         super().__init__(x1, y1, x2, y2, parent)
         
         self._moving = False
@@ -55,23 +71,28 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
             self.updateCloseButtonPosition()
     
     def updateCloseButtonPosition(self):
-        """Update close button position to be near the line center."""
+        """Update close button position to be near the right handle."""
         if not hasattr(self, 'close_button'):
             return
             
         line = self.line()
-        center = line.center()
-        # Position the button slightly above the line center
-        offset = 15
-        normal = line.normalVector().unitVector().translated(-line.p1())
-        normal_point = normal.p2()
         
-        # Calculate the position above the line center
-        button_x = center.x() + (normal_point.x() * offset)
-        button_y = center.y() + (normal_point.y() * offset)
+        # Get the right endpoint (handle2 position)
+        right_point = line.p2()
         
-        self.close_button.setPos(button_x - self.close_button.boundingRect().width()/2,
-                                button_y - self.close_button.boundingRect().height()/2)
+        # Calculate unit vector in the direction of the line
+        dx = line.dx()
+        dy = line.dy()
+        length = (dx * dx + dy * dy) ** 0.5
+        if length > 0:
+            # Use a fixed offset from the right handle
+            offset = self.MIN_LINE_LENGTH * 0.4  # 30% of minimum line length
+            
+            # Position the button to the right of the right handle
+            button_x = right_point.x() + offset
+            button_y = right_point.y()
+            
+            self.close_button.setPos(button_x, button_y)
     
     def itemChange(self, change, value):
         """Handle position changes."""
@@ -104,59 +125,121 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
         scene = self.scene()
         if scene:
             scene.profile_line_changed.emit()
+            
+    def setLine(self, x1, y1, x2, y2):
+        """Override setLine to enforce minimum length."""
+        dx = x2 - x1
+        dy = y2 - y1
+        current_length = (dx * dx + dy * dy) ** 0.5
+        
+        if current_length < self.MIN_LINE_LENGTH:
+            # Calculate the scaling factor needed to reach minimum length
+            scale = self.MIN_LINE_LENGTH / current_length if current_length > 0 else 1
+            # Extend the line while keeping the start point fixed
+            x2 = x1 + dx * scale
+            y2 = y1 + dy * scale
+            
+        super().setLine(x1, y1, x2, y2)
 
-class CloseButton(QtWidgets.QGraphicsPixmapItem):
+class CloseButton(QtWidgets.QGraphicsItem):
     """Close button for removing the profile line."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Load close icon
-        close_icon = QtGui.QPixmap(":/icons/close.svg")
-        # Scale icon to appropriate size
-        scaled_icon = close_icon.scaled(16, 16, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
-        self.setPixmap(scaled_icon)
+        # Set fixed size for the button
+        self.button_size = 30
         
         # Make clickable
         self.setAcceptHoverEvents(True)
         
+        # Create ViewerButton for consistent styling
+        self.button = ViewerButton(style="trigger-severe")
+        self.button.setIcon(":/icons/close.svg")
+        self.button.setFixedSize(self.button_size, self.button_size)
+        self.button.clicked.connect(self.remove_profile)
+        
+        # Create proxy widget to display the button in the graphics scene
+        self.proxy = QtWidgets.QGraphicsProxyWidget(self)
+        self.proxy.setWidget(self.button)
+        
+        # Center the proxy widget on this item
+        self.proxy.setPos(-self.button_size/2, -self.button_size/2)
+        
+    def boundingRect(self):
+        """Return the bounding rectangle of the button."""
+        return QtCore.QRectF(-self.button_size/2, -self.button_size/2, 
+                            self.button_size, self.button_size)
+        
+    def paint(self, painter, option, widget):
+        """Paint method required by QGraphicsItem."""
+        # Scale the proxy widget to maintain consistent size
+        if self.scene() and self.scene().views():
+            view = self.scene().views()[0]
+            if view:
+                scale = 1.0 / view.transform().m11()
+                self.proxy.setScale(scale)
+        
+    def remove_profile(self):
+        """Remove the profile line and its associated items."""
+        scene = self.scene()
+        if scene:
+            scene.cleanup_profile_tool()
+            
     def mousePressEvent(self, event):
         """Handle mouse press events."""
         if event.button() == QtCore.Qt.LeftButton:
-            # Remove the profile line and its associated items
-            scene = self.scene()
-            if scene:
-                scene.cleanup_profile_tool()
+            self.remove_profile()
         super().mousePressEvent(event)
         
     def hoverEnterEvent(self, event):
         """Handle hover enter events."""
-        # Change cursor to pointing hand
         self.setCursor(QtCore.Qt.PointingHandCursor)
         super().hoverEnterEvent(event)
         
     def hoverLeaveEvent(self, event):
         """Handle hover leave events."""
-        # Restore cursor
         self.unsetCursor()
         super().hoverLeaveEvent(event)
 
-class ProfileHandle(QtWidgets.QGraphicsEllipseItem):
+class ProfileHandle(QtWidgets.QGraphicsItem):
     """Handle for adjusting profile line endpoints."""
     
     def __init__(self, parent, handle_num):
-        super().__init__(-4, -4, 8, 8, parent)
+        super().__init__(parent)
         self.handle_num = handle_num
         self.parent_line = parent
         self._updating = False  # Flag to prevent recursive updates
         
-        # Set handle appearance
-        self.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 0)))
-        self.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
+        # Set fixed size for the handle
+        self.handle_size = 10
         
         # Make handle movable
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable)
         self.setFlag(QtWidgets.QGraphicsItem.ItemSendsGeometryChanges)
+        
+    def boundingRect(self):
+        """Return the bounding rectangle of the handle."""
+        return QtCore.QRectF(-self.handle_size/2, -self.handle_size/2, 
+                            self.handle_size, self.handle_size)
+        
+    def paint(self, painter, option, widget):
+        """Paint the handle."""
+        painter.save()
+        
+        # Scale transform to maintain consistent size
+        view = self.scene().views()[0]
+        scale = 1.0 / view.transform().m11()
+        painter.scale(scale, scale)
+        
+        # Draw handle
+        rect = QtCore.QRectF(-self.handle_size/2, -self.handle_size/2,
+                            self.handle_size, self.handle_size)
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0), 1))
+        painter.drawRect(rect)
+        
+        painter.restore()
     
     def itemChange(self, change, value):
         """Handle position changes."""
@@ -183,6 +266,22 @@ class ProfileHandle(QtWidgets.QGraphicsEllipseItem):
                 self._updating = False  # Always reset flag
                 
         return super().itemChange(change, value)
+        
+    def mousePressEvent(self, event):
+        """Handle mouse press events."""
+        if event.button() == QtCore.Qt.LeftButton:
+            event.accept()
+            super().mousePressEvent(event)
+        else:
+            event.ignore()
+            
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events."""
+        if event.button() == QtCore.Qt.LeftButton:
+            event.accept()
+            super().mouseReleaseEvent(event)
+        else:
+            event.ignore()
 
 class ProfileDialog(QtWidgets.QDialog):
     """Dialog for displaying profile graph."""
