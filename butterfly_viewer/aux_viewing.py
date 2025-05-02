@@ -150,11 +150,33 @@ class SynchableGraphicsView(QtWidgets.QGraphicsView):
         return super().mouseMoveEvent(event)
 
     def wheelEvent(self, wheelEvent):
-        """Overrides the wheelEvent to handle zooming.
+        """Overrides the wheelEvent to handle zooming or z-slice changes.
 
         :param QWheelEvent wheelEvent: instance of |QWheelEvent|"""
         assert isinstance(wheelEvent, QtGui.QWheelEvent)
-        if (wheelEvent.modifiers() & QtCore.Qt.ControlModifier) or self.scroll_to_zoom_always_on:
+        
+        # Check if this is a volumetric view
+        is_volumetric = hasattr(self, 'is_volumetric') and self.is_volumetric
+        
+        if wheelEvent.modifiers() & QtCore.Qt.ControlModifier:
+            if is_volumetric:
+                # Handle z-slice changes for volumetric data
+                delta = wheelEvent.angleDelta().y()
+                if delta > 0:
+                    # Scroll up - go to previous slice
+                    if hasattr(self, 'goto_previous_slice'):
+                        self.goto_previous_slice()
+                else:
+                    # Scroll down - go to next slice
+                    if hasattr(self, 'goto_next_slice'):
+                        self.goto_next_slice()
+                wheelEvent.accept()
+            else:
+                # Regular zoom behavior for non-volumetric data
+                self.wheelNotches.emit(wheelEvent.angleDelta().y() / 240.0)
+                wheelEvent.accept()
+        elif self.scroll_to_zoom_always_on:
+            # Regular zoom behavior when scroll_to_zoom_always_on is True
             self.wheelNotches.emit(wheelEvent.angleDelta().y() / 240.0)
             wheelEvent.accept()
         else:

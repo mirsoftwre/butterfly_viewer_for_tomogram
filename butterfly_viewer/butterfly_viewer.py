@@ -304,6 +304,11 @@ class SplitViewMdiChild(SplitView):
         self.current_slice = current_slice
         self.total_slices = volumetric_handler.total_slices
         
+        # Pass volumetric properties to the view
+        self._view_main_topleft.is_volumetric = True
+        self._view_main_topleft.goto_previous_slice = self.goto_previous_slice
+        self._view_main_topleft.goto_next_slice = self.goto_next_slice
+        
         # Configure slider
         self.slice_slider.setMinimum(0)
         self.slice_slider.setMaximum(self.total_slices - 1)
