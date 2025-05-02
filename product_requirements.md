@@ -120,6 +120,15 @@ Butterfly Viewer is a standalone desktop application that works in conjunction w
 - Initial loading of center slice for performance optimization
 - Handling of mixed 2D and volumetric images in synchronized views
 
+### 3.9 Image Information Display
+- Display detailed metadata for the current image file through a dedicated dialog
+- Show pixel dimensions (width x height)
+- Display number of images for multi-page files (e.g., TIFF)
+- Show pixel type information (bit depth, data type)
+- Display number of channels
+- Access through context menu under Image > Info
+- Support for different image formats with varying metadata availability
+
 ## 4. External Interface Requirements
 
 ### 4.1 User Interfaces

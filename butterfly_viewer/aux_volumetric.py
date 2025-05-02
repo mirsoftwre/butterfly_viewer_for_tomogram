@@ -65,8 +65,8 @@ class VolumetricImageHandler:
         """
         try:
             with Image.open(self.filepath) as img:
-                # Validate it's a single-channel image
-                if img.mode not in ('L', 'I', 'F'):
+                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
+                if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
                     raise ValueError(f"Unsupported image mode: {img.mode}. Only single-channel images are supported.")
                 
                 # Determine bit depth and data type
@@ -74,6 +74,11 @@ class VolumetricImageHandler:
                     self.bit_depth = 8
                     self.is_float = False
                     global_min, global_max = 0, 255
+                elif img.mode.startswith('I;16'):
+                    self.bit_depth = 16
+                    self.is_float = False
+                    # Initialize with 16-bit unsigned integer range
+                    global_min, global_max = np.iinfo(np.uint16).max, np.iinfo(np.uint16).min
                 elif img.mode == 'I':
                     self.bit_depth = 32
                     self.is_float = False
@@ -94,6 +99,9 @@ class VolumetricImageHandler:
                         # For non-8-bit images, analyze each slice to find min/max
                         if img.mode != 'L':
                             img_array = np.array(img)
+                            # For 16-bit images, ensure correct data type
+                            if img.mode.startswith('I;16'):
+                                img_array = img_array.astype(np.uint16)
                             slice_min = np.min(img_array)
                             slice_max = np.max(img_array)
                             
@@ -108,7 +116,7 @@ class VolumetricImageHandler:
                 
                 # Store the original data range for all slices
                 if global_min < global_max:
-                    self.original_data_range = (global_min, global_max)
+                    self.original_data_range = (float(global_min), float(global_max))
                     if not self.use_forced_range:
                         self.data_range = self.original_data_range
                 
@@ -135,7 +143,8 @@ class VolumetricImageHandler:
                 
             # Check if it's a single-channel image
             with Image.open(filepath) as img:
-                if img.mode not in ('L', 'I', 'F'):
+                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
+                if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
                     return False
                 
                 # Check if it has multiple pages
@@ -161,6 +170,10 @@ class VolumetricImageHandler:
         
         # For 16-bit, 32-bit integer, or float data, normalize to 8-bit range
         img_array = np.array(img)
+        
+        # Handle 16-bit images
+        if img.mode.startswith('I;16'):
+            img_array = img_array.astype(np.uint16)
         
         # Check if we need to update the data range
         min_val, max_val = self.data_range

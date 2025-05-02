@@ -18,6 +18,7 @@ from aux_comments import CommentItem
 from aux_rulers import RulerItem
 from aux_dialogs import PixelUnitConversionInputDialog
 from aux_profile import ProfileLine, ProfileDialog, get_profile_values
+from aux_image_info import ImageInfoDialog
 
 
 
@@ -149,6 +150,11 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             # Image section - comments and crop tools
             menu_image = QtWidgets.QMenu("Image")
             menu.addMenu(menu_image)
+            
+            # Add Info action
+            action_info = menu_image.addAction("Info")
+            action_info.setToolTip("Show image information")
+            action_info.triggered.connect(self.show_image_info)
             
             action_comment = menu_image.addAction("Comment")
             action_comment.setToolTip("Add a draggable text comment here")
@@ -556,3 +562,15 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
         if self.profile_dialog:
             self.profile_dialog.close()
             self.profile_dialog = None
+
+    def show_image_info(self):
+        """Show the image information dialog for the current image."""
+        # Get the current file path from the view
+        view = self.views()[0]
+        if view and view.window():
+            window = view.window()
+            if hasattr(window, 'activeMdiChild') and window.activeMdiChild:
+                current_file = window.activeMdiChild.currentFile
+                if current_file:
+                    dialog = ImageInfoDialog(current_file, window)
+                    dialog.exec_()
