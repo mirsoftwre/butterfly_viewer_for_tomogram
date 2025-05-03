@@ -308,6 +308,9 @@ class ProfileDialog(QtWidgets.QDialog):
         
         # Set window size
         self.resize(600, 400)
+        
+        # Ensure the dialog is deleted when closed
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
     
     def update_profile(self, profiles, labels):
         """Update the profile plot with new data.
@@ -339,6 +342,12 @@ class ProfileDialog(QtWidgets.QDialog):
             self.ax.legend()
         
         self.canvas.draw()
+        
+    def closeEvent(self, event):
+        """Handle dialog close event."""
+        # Close matplotlib figure to prevent memory leaks
+        plt.close(self.figure)
+        super().closeEvent(event)
 
 def get_profile_values(image, start_point, end_point, num_samples=1000):
     """Get pixel values along a line in an image.
