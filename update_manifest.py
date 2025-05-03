@@ -55,15 +55,15 @@ def organize_changes_with_gpt(commits: List[Dict[str, str]]) -> List[str]:
             [How]
             1. **Group** commits that deal with the same feature, bug, or topic into a single
             bullet.
-            2. Write each bullet from the **end-user’s perspective**, highlighting benefits
+            2. Write each bullet from the **end-user's perspective**, highlighting benefits
             and visible impact. Skip refactors, comment tweaks, or other internal chores.
-            3. Start every bullet with “- ” and a **present-tense verb** (e.g., “Add”,
-            “Fix”, “Improve”).
+            3. Start every bullet with " - " and a **present-tense verb** (e.g., "Add",
+            "Fix", "Improve").
             4. (Optional) Prefix bullets with a category in square brackets —
             **[Added], [Changed], [Fixed], [Removed]** — and list categories in that
             order.
             5. Keep each bullet to one line (≈80 characters max) for quick scanning.
-            6. If a commit’s purpose is unclear or has no user-facing effect, feel free to
+            6. If a commit's purpose is unclear or has no user-facing effect, feel free to
             omit it.
 
             [Input]
@@ -110,11 +110,22 @@ def update_manifest():
                 # Organize changes using GPT
                 changes = organize_changes_with_gpt(commits)
                 
+                # Get the download URL from the current version in update_history
+                current_version_info = next(
+                    (item for item in manifest['update_history'] if item['version'] == current_version),
+                    None
+                )
+                download_url = current_version_info['download_url'] if current_version_info else None
+                
+                if not download_url:
+                    print("Warning: Could not find download URL for current version")
+                    return
+                
                 # Create new version entry
                 new_version = {
                     'version': latest_git_tag,
                     'release_date': datetime.now().strftime('%Y-%m-%d'),
-                    'download_url': manifest['download_url'],  # You'll need to update this URL
+                    'download_url': download_url,
                     'changes': changes
                 }
                 

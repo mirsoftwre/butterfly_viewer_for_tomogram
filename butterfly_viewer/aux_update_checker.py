@@ -84,10 +84,16 @@ class UpdateChecker(QtCore.QObject):
                 self.update_available.emit('', '', [], "No version information in manifest")
                 return
                 
-            download_url = manifest_data.get('download_url')
+            # Get download URL from the latest version in update_history
+            latest_version_info = next(
+                (item for item in manifest_data.get('update_history', []) 
+                 if item['version'] == latest_version),
+                None
+            )
+            download_url = latest_version_info['download_url'] if latest_version_info else None
             if not download_url:
-                print("No download URL found in manifest")
-                self.update_available.emit('', '', [], "No download URL in manifest")
+                print("No download URL found for latest version")
+                self.update_available.emit('', '', [], "No download URL for latest version")
                 return
                 
             update_history = manifest_data.get('update_history', [])
