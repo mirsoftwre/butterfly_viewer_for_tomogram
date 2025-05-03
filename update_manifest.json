@@ -1,0 +1,8 @@
+{
+    "version": "1.2.1",
+    "download_url": "https://tomocube.app.box.com/file/1850929233349",
+    "release_notes": "What's new in version 1.2.1:\n- bug fix: 16-bit volumetric data was not loaded as volumetric data\n- new feature: Ctrl+Scroll is assigned for changing z slice",
+    "min_required_version": "1.0.0",
+    "release_date": "2025-05-02",
+    "is_critical": false
+} 

@@ -334,3 +334,42 @@ The Profile Tool allows users to analyze pixel values along a user-defined line 
 2. Profile display updates smoothly during line adjustments
 3. Multiple profiles can be effectively compared
 4. Profile data accurately represents image pixel values
+
+## 10. Auto-Update System
+
+### 10.1 Overview
+The software includes an automatic update checking system that verifies the availability of new versions on startup and provides users with download links for updates.
+
+### 10.2 Update Check Process
+- Automatically check for updates when the application starts
+- Compare current version with latest version from manifest file
+- Notify users when a new version is available
+- Provide direct download links to the new version
+
+### 10.3 Update Distribution
+- Software is distributed through Box.com
+- Update checking uses a manifest file (JSON format) hosted online
+- No direct Box.com API integration required
+
+### 10.4 Manifest File Structure
+The manifest file contains:
+- Latest version number
+- Download URL for the new version
+- Release notes/update content description
+- Other relevant metadata
+
+### 10.5 User Interface
+- Display update notification when new version is available
+- Show current version and available version
+- Provide option to:
+  - Download the update
+  - Skip this version
+  - Remind later
+- Display release notes/changes in the new version
+
+### 10.6 Technical Requirements
+- HTTP/HTTPS capability to fetch manifest file
+- JSON parsing functionality
+- Proper error handling for network issues
+- Version comparison logic
+- Non-blocking update check process

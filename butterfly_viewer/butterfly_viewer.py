@@ -23,6 +23,7 @@ import time
 import os
 from datetime import datetime
 import math
+import webbrowser
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -35,6 +36,7 @@ from aux_layouts import GridLayoutFloatingShadow
 from aux_exif import get_exif_rotation_angle
 from aux_buttons import ViewerButton
 import icons_rc
+from aux_update_checker import UpdateChecker, UpdateDialog
 
 
 
@@ -46,6 +48,7 @@ COMPANY = "Mir Software"
 DOMAIN = "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 APPNAME = "Butterfly Viewer for Volumetric Images"
 VERSION = "1.2.1"
+UPDATE_MANIFEST_URL = "https://tomocube.box.com/s/ehjgwf7p9c26wznsmdyw8hkint5dltnf"
 
 SETTING_RECENTFILELIST = "recentfilelist"
 SETTING_LAST_DIRECTORY = "lastdirectory"
@@ -711,6 +714,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super(MultiViewMainWindow, self).__init__()
 
+        # Initialize update checker
+        self.update_checker = UpdateChecker(VERSION, UPDATE_MANIFEST_URL, self)
+        self.update_checker.update_available.connect(self.handle_update_check)
+        
+        # Check for updates
+        QtCore.QTimer.singleShot(1000, self.check_for_updates)  # Check after 1 second delay
+
         self._recentFileActions = []
         self._handlingScrollChangedSignal = False
         self._last_accessed_fullpath = None
@@ -1014,6 +1024,27 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         self.setStyleSheet("QWidget{font-size: 9pt}")
 
+    def check_for_updates(self):
+        """Check for software updates."""
+        self.update_checker.check_for_updates()
+
+    def handle_update_check(self, new_version, download_url, release_notes, error):
+        """Handle the result of update check.
+        
+        Args:
+            new_version (str): Version number of the new release
+            download_url (str): URL to download the new version
+            release_notes (str): Release notes for the new version
+            error (str): Error message if check failed
+        """
+        if error:
+            # Log error but don't show to user unless in debug mode
+            print(f"Update check failed: {error}")
+            return
+            
+        if new_version:
+            dialog = UpdateDialog(VERSION, new_version, download_url, release_notes, self)
+            dialog.exec_()
 
     # Screenshot window
 
