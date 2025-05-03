@@ -2009,8 +2009,89 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     mouse_rect_pos_origin_y = math.floor(scene_y - child.mouse_rect_height + 1)
                     child.mouse_rect_scene_main_topleft.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y)
                     
-                    # 동일한 픽셀 값으로 텍스트 설정 (활성 창의 픽셀 값 사용)
-                    child.mouse_rect_text.setPlainText(f"({int(scene_x)}, {int(scene_y)}): {pixel_value}")
+                    # 각 창의 원본 이미지에서 픽셀 값 가져오기
+                    child_pixel_value = "N/A"
+                    
+                    # 볼륨 데이터인 경우
+                    if hasattr(child, '_volume_data') and child._volume_data is not None:
+                        try:
+                            img = child._volume_data
+                            current_slice = child.current_slice
+                            int_scene_x = int(scene_x)
+                            int_scene_y = int(scene_y)
+                            
+                            img.seek(current_slice)  # 현재 슬라이스로 이동
+                            
+                            # 이미지 범위 확인
+                            if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
+                                # 이미지를 배열로 변환
+                                img_array = np.array(img)
+                                
+                                # 픽셀 값 가져오기
+                                if img.mode == 'L':  # 8비트 그레이스케일
+                                    child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                                elif img.mode == 'I':  # 32비트 정수
+                                    child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                                elif img.mode == 'F':  # 32비트 실수
+                                    value = img_array[int_scene_y, int_scene_x]
+                                    child_pixel_value = f"{value:.3f}"
+                                else:
+                                    # RGB, RGBA 등 다른 이미지 모드 처리
+                                    if img.mode == 'RGB':
+                                        r, g, b = img_array[int_scene_y, int_scene_x]
+                                        child_pixel_value = f"({r}, {g}, {b})"
+                                    elif img.mode == 'RGBA':
+                                        r, g, b, a = img_array[int_scene_y, int_scene_x]
+                                        child_pixel_value = f"({r}, {g}, {b}, {a})"
+                                    else:
+                                        child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                        except Exception as e:
+                            child_pixel_value = f"Error: {str(e)}"
+                    else:
+                        # 일반 이미지 처리 (볼륨 데이터가 아닌 경우)
+                        try:
+                            from PIL import Image
+                            import numpy as np
+                            
+                            # 원본 이미지 파일 열기
+                            with Image.open(child.currentFile) as img:
+                                # 이미지 범위 확인
+                                if 0 <= int(scene_x) < img.width and 0 <= int(scene_y) < img.height:
+                                    # 이미지를 배열로 변환
+                                    img_array = np.array(img)
+                                    
+                                    # 픽셀 값 가져오기
+                                    if img.mode == 'L':  # 8비트 그레이스케일
+                                        child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
+                                    elif img.mode == 'I':  # 32비트 정수
+                                        child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
+                                    elif img.mode == 'F':  # 32비트 실수
+                                        value = img_array[int(scene_y), int(scene_x)]
+                                        child_pixel_value = f"{value:.3f}"
+                                    else:
+                                        # RGB, RGBA 등 다른 이미지 모드 처리
+                                        if img.mode == 'RGB':
+                                            r, g, b = img_array[int(scene_y), int(scene_x)]
+                                            child_pixel_value = f"({r}, {g}, {b})"
+                                        elif img.mode == 'RGBA':
+                                            r, g, b, a = img_array[int(scene_y), int(scene_x)]
+                                            child_pixel_value = f"({r}, {g}, {b}, {a})"
+                                        else:
+                                            child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
+                        except Exception as e:
+                            # 에러가 발생하면 QPixmap에서 값을 읽음 (fallback)
+                            pixmap = child._pixmapItem_main_topleft.pixmap()
+                            if not pixmap.isNull() and 0 <= scene_x < pixmap.width() and 0 <= scene_y < pixmap.height():
+                                image = pixmap.toImage()
+                                pixel = image.pixel(scene_x, scene_y)
+                                color = QtGui.QColor(pixel)
+                                if pixmap.depth() <= 8:  # 그레이스케일 이미지
+                                    child_pixel_value = f"{color.red()}"  # 그레이스케일은 RGB 값이 모두 동일
+                                else:  # 컬러 이미지
+                                    child_pixel_value = f"({color.red()}, {color.green()}, {color.blue()})"
+                    
+                    # 각 창의 픽셀 값으로 텍스트 설정
+                    child.mouse_rect_text.setPlainText(f"({int(scene_x)}, {int(scene_y)}): {child_pixel_value}")
                     child.mouse_rect_text.setPos(mouse_rect_pos_origin_x, mouse_rect_pos_origin_y + child.mouse_rect_height + 1)
             
         else:
