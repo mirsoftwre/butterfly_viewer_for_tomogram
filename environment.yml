@@ -30,6 +30,8 @@ dependencies:
   - pillow=8.2.0
   - numpy=1.19.2
   - matplotlib=3.3.4
+  - pandas=1.1.5
+  - openpyxl=3.0.7
   - pip:
     - pyinstaller==4.3
 prefix: C:\art\github\butterfly_viewer\env

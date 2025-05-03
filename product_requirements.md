@@ -303,10 +303,19 @@ The Profile Tool allows users to analyze pixel values along a user-defined line 
    - Multiple profiles overlaid when multiple images are open
    - Different colors for each image's profile
    - Legend identifying each profile
+   - Always-on-top option (enabled by default)
 2. Real-time updates when:
    - Line position is adjusted
    - Line endpoints are moved
    - Image content changes
+
+### Menu Options
+1. Window Control:
+   - Always on Top: Toggle to keep profile window above other windows (default: enabled)
+2. Export Options:
+   - Save Graph as Image: Capture current graph view as PNG/JPG
+   - Export Profile Data: Save profile values as Excel or CSV file
+   - Copy to Clipboard: Quick copy of profile data
 
 ### Multi-Image Support
 1. Synchronized display of profiles from multiple images:

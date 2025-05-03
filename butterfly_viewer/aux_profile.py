@@ -290,63 +290,178 @@ class ProfileDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Intensity Profile")
-        self.setModal(False)
+        
+        # Set window flags to stay on top by default
+        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
         
         # Create matplotlib figure
         self.figure = Figure(figsize=(6, 4))
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
         
+        # Create menu bar
+        self.menu_bar = QtWidgets.QMenuBar(self)
+        
+        # File menu
+        self.file_menu = self.menu_bar.addMenu("File")
+        
+        # Save Graph action
+        self.save_graph_action = QtWidgets.QAction("Save Graph as Image...", self)
+        self.save_graph_action.triggered.connect(self.save_graph)
+        self.file_menu.addAction(self.save_graph_action)
+        
+        # Export Data action
+        self.export_data_action = QtWidgets.QAction("Export Profile Data...", self)
+        self.export_data_action.triggered.connect(self.export_data)
+        self.file_menu.addAction(self.export_data_action)
+        
+        # View menu
+        self.view_menu = self.menu_bar.addMenu("View")
+        
+        # Always on Top action
+        self.always_on_top_action = QtWidgets.QAction("Always on Top", self)
+        self.always_on_top_action.setCheckable(True)
+        self.always_on_top_action.setChecked(True)
+        self.always_on_top_action.triggered.connect(self.toggle_always_on_top)
+        self.view_menu.addAction(self.always_on_top_action)
+        
         # Create layout
         layout = QtWidgets.QVBoxLayout()
+        layout.setMenuBar(self.menu_bar)
         layout.addWidget(self.canvas)
+        
         self.setLayout(layout)
+        self.resize(800, 600)
         
-        # Initialize plot
-        self.ax.set_xlabel('Position along line (pixels)')
-        self.ax.set_ylabel('Pixel value')
-        self.ax.grid(True)
+        # Store profile data
+        self.current_profiles = None
+        self.current_labels = None
         
-        # Set window size
-        self.resize(600, 400)
+    def toggle_always_on_top(self, checked):
+        """Toggle the window's always-on-top state."""
+        flags = self.windowFlags()
+        if checked:
+            flags |= QtCore.Qt.WindowStaysOnTopHint
+        else:
+            flags &= ~QtCore.Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.show()  # Need to show again after changing flags
         
-        # Ensure the dialog is deleted when closed
-        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-    
-    def update_profile(self, profiles, labels):
-        """Update the profile plot with new data.
+    def save_graph(self):
+        """Save the current graph as an image file."""
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Graph",
+            "",
+            "PNG Files (*.png);;JPEG Files (*.jpg);;All Files (*)"
+        )
         
-        Args:
-            profiles: List of (positions, values) tuples for each profile
-            labels: List of labels for each profile
-        """
-        self.ax.clear()
-        
-        if not profiles:  # No data to plot
-            self.ax.set_xlabel('Position along line (pixels)')
-            self.ax.set_ylabel('Pixel value')
-            self.ax.grid(True)
-            self.canvas.draw()
+        if file_path:
+            try:
+                self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Success",
+                    "Graph saved successfully!"
+                )
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to save graph: {str(e)}"
+                )
+                
+    def export_data(self):
+        """Export profile data to CSV file."""
+        if self.current_profiles is None or self.current_labels is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Warning",
+                "No profile data available to export."
+            )
             return
             
-        colors = plt.cm.tab10(np.linspace(0, 1, len(profiles)))
+        file_path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Export Profile Data",
+            "",
+            "CSV Files (*.csv);;Excel Files (*.xlsx);;All Files (*)"
+        )
         
-        for (positions, values), label, color in zip(profiles, labels, colors):
-            self.ax.plot(positions, values, label=label, color=color)
+        if not file_path:
+            return
+            
+        try:
+            import pandas as pd
+            
+            # Create DataFrame
+            data = {}
+            for profile, label in zip(self.current_profiles, self.current_labels):
+                x_values = profile[0]
+                y_values = profile[1]
+                data[f"{label}_X"] = x_values
+                data[f"{label}_Y"] = y_values
+                
+            df = pd.DataFrame(data)
+            
+            # Save based on file extension
+            try:
+                if file_path.lower().endswith('.xlsx'):
+                    df.to_excel(file_path, index=False)
+                else:
+                    if not file_path.lower().endswith('.csv'):
+                        file_path += '.csv'
+                    df.to_csv(file_path, index=False)
+            except ImportError as e:
+                # If Excel export fails due to missing openpyxl, fallback to CSV
+                if 'openpyxl' in str(e):
+                    if not file_path.lower().endswith('.csv'):
+                        file_path = file_path.rsplit('.', 1)[0] + '.csv'
+                    df.to_csv(file_path, index=False)
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        "Notice",
+                        "Excel export not available. Data has been saved as CSV instead."
+                    )
+                else:
+                    raise
+                
+            QtWidgets.QMessageBox.information(
+                self,
+                "Success",
+                "Profile data exported successfully!"
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to export data: {str(e)}"
+            )
+    
+    def update_profile(self, profiles, labels):
+        """Update the profile graph with new data."""
+        self.current_profiles = profiles
+        self.current_labels = labels
         
-        self.ax.set_xlabel('Position along line (pixels)')
-        self.ax.set_ylabel('Pixel value')
+        self.ax.clear()
+        
+        for profile, label in zip(profiles, labels):
+            x_values = profile[0]
+            y_values = profile[1]
+            self.ax.plot(x_values, y_values, label=label)
+            
+        self.ax.set_xlabel('Distance (pixels)')
+        self.ax.set_ylabel('Intensity')
+        self.ax.legend()
         self.ax.grid(True)
         
-        # Only show legend if there are plots
-        if len(profiles) > 0:
-            self.ax.legend()
-        
+        self.figure.tight_layout()
         self.canvas.draw()
-        
+    
     def closeEvent(self, event):
         """Handle dialog close event."""
-        # Close matplotlib figure to prevent memory leaks
+        # Clean up matplotlib figure to prevent memory leaks
         plt.close(self.figure)
         super().closeEvent(event)
 
