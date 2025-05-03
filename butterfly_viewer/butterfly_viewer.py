@@ -2457,6 +2457,14 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         # Clean up any ongoing crop operation
         self.cleanupCropTools()
 
+        # Clean up any open profile dialogs
+        for window in self._mdiArea.subWindowList():
+            child = window.widget()
+            if hasattr(child, '_scene_main_topleft'):
+                scene = child._scene_main_topleft
+                if hasattr(scene, 'cleanup_profile_tool'):
+                    scene.cleanup_profile_tool()
+
         if self.is_fullscreen: # Needed to properly close the image viewer if the main window is closed while the viewer is fullscreen
             self.is_fullscreen = False
             self.setCentralWidget(self.mdiarea_plus_buttons)

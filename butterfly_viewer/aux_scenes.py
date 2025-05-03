@@ -559,9 +559,12 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
                         scene.in_profile_mode = False
         
         # Close profile dialog
-        if self.profile_dialog:
-            self.profile_dialog.close()
-            self.profile_dialog = None
+        try:
+            if self.profile_dialog:
+                self.profile_dialog.close()
+                self.profile_dialog = None
+        except:
+            pass
 
     def show_image_info(self):
         """Show the image information dialog for the current image."""
