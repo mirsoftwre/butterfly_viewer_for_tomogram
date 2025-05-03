@@ -17,7 +17,7 @@ import webbrowser
 class UpdateChecker(QtCore.QObject):
     """Handles checking for software updates."""
     
-    update_available = QtCore.pyqtSignal(str, str, str, str)  # version, download_url, release_notes, error
+    update_available = QtCore.pyqtSignal(str, str, list, str)  # version, download_url, update_history, error
     
     def __init__(self, current_version, manifest_url, parent=None):
         """Initialize the update checker.
@@ -70,27 +70,27 @@ class UpdateChecker(QtCore.QObject):
                     manifest_data = json.loads(content)
             except urllib.error.URLError as e:
                 print(f"Network error: {e}")
-                self.update_available.emit('', '', '', f"Network error: {e}")
+                self.update_available.emit('', '', [], f"Network error: {e}")
                 return
             except json.JSONDecodeError as e:
                 print(f"JSON parsing error: {e}")
                 print(f"Content that failed to parse: {content}")
-                self.update_available.emit('', '', '', f"Invalid manifest format: {e}")
+                self.update_available.emit('', '', [], f"Invalid manifest format: {e}")
                 return
                 
-            latest_version = manifest_data.get('version')
+            latest_version = manifest_data.get('latest_version')
             if not latest_version:
                 print("No version found in manifest")
-                self.update_available.emit('', '', '', "No version information in manifest")
+                self.update_available.emit('', '', [], "No version information in manifest")
                 return
                 
             download_url = manifest_data.get('download_url')
             if not download_url:
                 print("No download URL found in manifest")
-                self.update_available.emit('', '', '', "No download URL in manifest")
+                self.update_available.emit('', '', [], "No download URL in manifest")
                 return
                 
-            release_notes = manifest_data.get('release_notes', '')
+            update_history = manifest_data.get('update_history', [])
             
             print(f"Current version: {self.current_version}")
             print(f"Latest version: {latest_version}")
@@ -98,26 +98,32 @@ class UpdateChecker(QtCore.QObject):
             # Compare versions
             if version.parse(latest_version) > version.parse(self.current_version):
                 print("Update available!")
-                self.update_available.emit(latest_version, download_url, release_notes, '')
+                # Filter update history to only show versions newer than current version
+                relevant_updates = [
+                    update for update in update_history 
+                    if version.parse(update['version']) > version.parse(self.current_version)
+                ]
+                relevant_updates.sort(key=lambda x: version.parse(x['version']), reverse=True)
+                self.update_available.emit(latest_version, download_url, relevant_updates, '')
             else:
                 print("No update needed")
-                self.update_available.emit('', '', '', '')
+                self.update_available.emit('', '', [], '')
                 
         except Exception as e:
             print(f"Unexpected error during update check: {e}")
-            self.update_available.emit('', '', '', str(e))
+            self.update_available.emit('', '', [], str(e))
 
 class UpdateDialog(QtWidgets.QDialog):
     """Dialog to show update information and options."""
     
-    def __init__(self, current_version, new_version, download_url, release_notes, parent=None):
+    def __init__(self, current_version, new_version, download_url, update_history, parent=None):
         """Initialize the update dialog.
         
         Args:
             current_version (str): Current version of the software
             new_version (str): Available new version
             download_url (str): URL to download the new version
-            release_notes (str): Release notes for the new version
+            update_history (list): List of update history entries
             parent (QWidget): Parent widget
         """
         super().__init__(parent)
@@ -125,29 +131,37 @@ class UpdateDialog(QtWidgets.QDialog):
         self.download_url = download_url
         
         self.setWindowTitle("Software Update Available")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
         
         layout = QtWidgets.QVBoxLayout(self)
         
         # Version information
-        version_layout = QtWidgets.QHBoxLayout()
-        version_layout.addWidget(QtWidgets.QLabel("Current version:"))
-        version_layout.addWidget(QtWidgets.QLabel(current_version))
-        layout.addLayout(version_layout)
+        version_info = QtWidgets.QWidget()
+        version_layout = QtWidgets.QGridLayout(version_info)
         
-        new_version_layout = QtWidgets.QHBoxLayout()
-        new_version_layout.addWidget(QtWidgets.QLabel("New version:"))
-        new_version_layout.addWidget(QtWidgets.QLabel(new_version))
-        layout.addLayout(new_version_layout)
+        version_layout.addWidget(QtWidgets.QLabel("Current version:"), 0, 0)
+        version_layout.addWidget(QtWidgets.QLabel(current_version), 0, 1)
+        version_layout.addWidget(QtWidgets.QLabel("New version:"), 1, 0)
+        version_layout.addWidget(QtWidgets.QLabel(new_version), 1, 1)
         
-        # Release notes
-        if release_notes:
-            layout.addWidget(QtWidgets.QLabel("What's New:"))
-            notes_text = QtWidgets.QTextEdit()
-            notes_text.setPlainText(release_notes)
-            notes_text.setReadOnly(True)
-            notes_text.setMaximumHeight(150)
-            layout.addWidget(notes_text)
+        layout.addWidget(version_info)
+        
+        # Update history
+        if update_history:
+            layout.addWidget(QtWidgets.QLabel("Update History:"))
+            history_text = QtWidgets.QTextEdit()
+            history_content = ""
+            
+            for update in update_history:
+                history_content += f"Version {update['version']} ({update['release_date']})\n"
+                for change in update['changes']:
+                    history_content += f"• {change}\n"
+                history_content += "\n"
+            
+            history_text.setPlainText(history_content)
+            history_text.setReadOnly(True)
+            layout.addWidget(history_text)
         
         # Buttons
         button_box = QtWidgets.QDialogButtonBox()

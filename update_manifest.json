@@ -1,8 +1,54 @@
 {
-    "version": "1.2.1",
+    "latest_version": "1.2.1",
     "download_url": "https://tomocube.app.box.com/file/1850929233349",
-    "release_notes": "What's new in version 1.2.1:\n- bug fix: 16-bit volumetric data was not loaded as volumetric data\n- new feature: Ctrl+Scroll is assigned for changing z slice",
     "min_required_version": "1.0.0",
-    "release_date": "2025-05-02",
-    "is_critical": false
+    "is_critical": false,
+    "update_history": [
+        {
+            "version": "1.2.1",
+            "release_date": "2024-05-02",
+            "download_url": "https://tomocube.app.box.com/file/1850929233349",
+            "changes": [
+                "16-bit volumetric data was not loaded as volumetric data (bug fix)",
+                "Ctrl+Scroll is assigned for changing z slice (new feature)"
+            ]
+        },
+        {
+            "version": "1.2.0",
+            "release_date": "2024-05-01",
+            "download_url": "https://tomocube.app.box.com/file/1850262097854",
+            "changes": [
+                "Added Profile Tool for analyzing pixel values along user-defined lines",
+                "Added support for volumetric data viewing",
+                "Added display range controls for volumetric data",
+                "Added synchronized slice navigation for volumetric data",
+                "Added 3D crop functionality for volumetric data",
+                "Improved memory management for large files"
+            ]
+        },
+        {
+            "version": "1.1.0",
+            "release_date": "2024-04-21",
+            "download_url": "https://tomocube.app.box.com/file/1839625986136",
+            "changes": [
+                "Added synchronized crop feature",
+                "Added support for multi-page TIFF files",
+                "Added support for high bit-depth images",
+                "Improved image loading performance",
+                "Enhanced UI responsiveness"
+            ]
+        },
+        {
+            "version": "1.0.0",
+            "release_date": "2024-04-19",
+            "download_url": "https://tomocube.app.box.com/file/1838957524028",
+            "changes": [
+                "Initial release",
+                "Basic image viewing functionality",
+                "Synchronized pan and zoom",
+                "Split view with sliding overlays",
+                "Support for common image formats"
+            ]
+        }
+    ]
 } 
