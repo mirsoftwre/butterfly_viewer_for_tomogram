@@ -518,22 +518,26 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
                 
                 # Get the image data
                 if hasattr(child, '_pixmapItem_main_topleft'):
-                    pixmap = child._pixmapItem_main_topleft.pixmap()
-                    if not pixmap.isNull():
-                        # Convert QPixmap to numpy array
-                        image = pixmap.toImage()
-                        width = image.width()
-                        height = image.height()
-                        ptr = image.bits()
-                        ptr.setsize(height * width * 4)
-                        arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+                    pixmap_item = child._pixmapItem_main_topleft
+                    if not pixmap_item.pixmap().isNull():
+                        # For volumetric data, we'll get the values directly in get_profile_values
+                        # For regular images, convert QPixmap to numpy array
+                        image = None
+                        if not (hasattr(child, 'is_volumetric') and child.is_volumetric):
+                            image = pixmap_item.pixmap().toImage()
+                            width = image.width()
+                            height = image.height()
+                            ptr = image.bits()
+                            ptr.setsize(height * width * 4)
+                            image = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
                         
-                        # Get profile values
-                        profile = get_profile_values(arr, start_point, end_point)
-                        profiles.append(profile)
+                        # Get profile values with scene and pixmap_item for coordinate transformation
+                        profile = get_profile_values(image, start_point, end_point, 
+                                                   scene=self, pixmap_item=pixmap_item)
                         
-                        # Get window title for label
-                        labels.append(os.path.basename(child.currentFile))
+                        if profile[0] is not None:  # Only add if we got valid values
+                            profiles.append(profile)
+                            labels.append(os.path.basename(child.currentFile))
         
         # Update profile dialog
         if profiles:

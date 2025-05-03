@@ -14,6 +14,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from aux_buttons import ViewerButton
+from PIL import Image  # Add PIL import here since we use it for volumetric data
 
 class ProfileLine(QtWidgets.QGraphicsLineItem):
     """Interactive line item for profile selection."""
@@ -349,36 +350,95 @@ class ProfileDialog(QtWidgets.QDialog):
         plt.close(self.figure)
         super().closeEvent(event)
 
-def get_profile_values(image, start_point, end_point, num_samples=1000):
+def get_profile_values(image, start_point, end_point, num_samples=1000, scene=None, pixmap_item=None):
     """Get pixel values along a line in an image.
     
     Args:
-        image: numpy array containing image data
-        start_point: (x, y) tuple of line start point
-        end_point: (x, y) tuple of line end point
+        image: numpy array containing image data or None if using volumetric data
+        start_point: (x, y) tuple of line start point in scene coordinates
+        end_point: (x, y) tuple of line end point in scene coordinates
         num_samples: Number of points to sample along the line
+        scene: The QGraphicsScene containing the image (needed for coordinate transformation)
+        pixmap_item: The QGraphicsPixmapItem containing the image
     
     Returns:
         Tuple of (positions, values) where positions are distances along the line
         and values are the corresponding pixel values
     """
-    # Create points along the line
-    x = np.linspace(start_point[0], end_point[0], num_samples)
-    y = np.linspace(start_point[1], end_point[1], num_samples)
+    if scene and pixmap_item:
+        # Convert scene coordinates to item coordinates
+        start_point_item = pixmap_item.mapFromScene(QtCore.QPointF(*start_point))
+        end_point_item = pixmap_item.mapFromScene(QtCore.QPointF(*end_point))
+        
+        # Get item coordinates
+        start_x = start_point_item.x()
+        start_y = start_point_item.y()
+        end_x = end_point_item.x()
+        end_y = end_point_item.y()
+        
+        # Create points along the line in item coordinates
+        x = np.linspace(start_x, end_x, num_samples)
+        y = np.linspace(start_y, end_y, num_samples)
+        
+        # Calculate positions along the line
+        positions = np.sqrt((x - start_x)**2 + (y - start_y)**2)
+        
+        # Check if we're dealing with volumetric data
+        if hasattr(scene, 'views') and scene.views():
+            view = scene.views()[0]
+            window = view.window()
+            if window and hasattr(window, 'activeMdiChild'):
+                active_child = window.activeMdiChild
+                if hasattr(active_child, 'is_volumetric') and active_child.is_volumetric:
+                    # Get volumetric data handler
+                    volumetric_handler = active_child.volumetric_handler
+                    current_slice = active_child.current_slice
+                    
+                    try:
+                        # Open the image file and get the current slice
+                        with Image.open(volumetric_handler.filepath) as img:
+                            img.seek(current_slice)
+                            
+                            # Convert coordinates to integers and clip to image boundaries
+                            x_indices = np.clip(x.astype(int), 0, img.width - 1)
+                            y_indices = np.clip(y.astype(int), 0, img.height - 1)
+                            
+                            # Convert image to numpy array
+                            img_array = np.array(img)
+                            
+                            # Get values along the line
+                            if img.mode == 'L':  # 8-bit grayscale
+                                values = img_array[y_indices, x_indices]
+                            elif img.mode == 'I':  # 32-bit integer
+                                values = img_array[y_indices, x_indices]
+                            elif img.mode == 'F':  # 32-bit float
+                                values = img_array[y_indices, x_indices]
+                            else:  # RGB or RGBA
+                                if len(img_array.shape) == 3:
+                                    # Average across color channels
+                                    values = np.mean(img_array[y_indices, x_indices], axis=1)
+                                else:
+                                    values = img_array[y_indices, x_indices]
+                            
+                            return positions, values
+                            
+                    except Exception as e:
+                        print(f"Error reading volumetric data: {str(e)}")
+                        return positions, np.zeros_like(positions)
+        
+        # For regular images, get pixel values using bilinear interpolation
+        if image is not None:
+            if len(image.shape) == 3:  # Color image
+                values = []
+                for channel in range(image.shape[2]):
+                    values.append(get_interpolated_values(image[:,:,channel], x, y))
+                values = np.mean(values, axis=0)  # Average across channels
+            else:  # Grayscale image
+                values = get_interpolated_values(image, x, y)
+            
+            return positions, values
     
-    # Calculate positions along the line
-    positions = np.sqrt((x - start_point[0])**2 + (y - start_point[1])**2)
-    
-    # Get pixel values using bilinear interpolation
-    if len(image.shape) == 3:  # Color image
-        values = []
-        for channel in range(image.shape[2]):
-            values.append(get_interpolated_values(image[:,:,channel], x, y))
-        values = np.mean(values, axis=0)  # Average across channels
-    else:  # Grayscale image
-        values = get_interpolated_values(image, x, y)
-    
-    return positions, values
+    return None, None
 
 def get_interpolated_values(image, x, y):
     """Get interpolated pixel values at floating point coordinates.
