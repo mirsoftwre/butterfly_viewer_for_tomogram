@@ -423,6 +423,17 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             
             # Update profile
             self.update_profile()
+            
+            # --- 추가: 모든 창의 그래프를 즉시 갱신 ---
+            main_window = self.views()[0].window()
+            if hasattr(main_window, '_mdiArea'):
+                windows = main_window._mdiArea.subWindowList()
+                for window in windows:
+                    child = window.widget()
+                    if hasattr(child, '_scene_main_topleft'):
+                        scene = child._scene_main_topleft
+                        if scene.profile_line and hasattr(scene.profile_line, 'handle1'):
+                            scene.profile_line.handle1.update_all_profiles_in_views()
     
     def sync_profile_line_to_all_views(self):
         """Create synchronized profile lines in all other views."""

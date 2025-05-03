@@ -156,8 +156,13 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
                                                 labels.append(f"Window {len(profiles)}")
                             
                             # Update the profile dialog with all profiles
-                            if profiles and hasattr(scene, 'profile_dialog'):
-                                scene.profile_dialog.update_profile(profiles, labels)
+                            if profiles:
+                                for other_window2 in windows:
+                                    other_child2 = other_window2.widget()
+                                    if other_child2 and hasattr(other_child2, '_scene_main_topleft'):
+                                        other_scene2 = other_child2._scene_main_topleft
+                                        if hasattr(other_scene2, 'profile_dialog'):
+                                            other_scene2.profile_dialog.update_profile(profiles, labels)
             finally:
                 self._updating = False  # Always reset flag
                 
@@ -174,7 +179,7 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
         super().mouseReleaseEvent(event)
         # Emit signal to update profile
         scene = self.scene()
-        if scene:
+        if scene is not None and hasattr(scene, 'profile_line_changed'):
             scene.profile_line_changed.emit()
             
     def setLine(self, x1, y1, x2, y2):
@@ -292,29 +297,60 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
         
         painter.restore()
     
+    def update_all_profiles_in_views(self):
+        """모든 윈도우의 profile_dialog에 대해 profiles, labels를 계산하여 update_profile을 호출한다."""
+        scene = self.scene()
+        if scene and scene.views():
+            view = scene.views()[0]
+            window = view.window()
+            if window and hasattr(window, '_mdiArea'):
+                windows = window._mdiArea.subWindowList()
+                profiles = []
+                labels = []
+                for other_window in windows:
+                    other_child = other_window.widget()
+                    if other_child and hasattr(other_child, '_scene_main_topleft'):
+                        other_scene = other_child._scene_main_topleft
+                        if hasattr(other_scene, 'profile_line'):
+                            line = other_scene.profile_line.line()
+                            start_point = (line.x1(), line.y1())
+                            end_point = (line.x2(), line.y2())
+                            pixmap_item = None
+                            for item in other_scene.items():
+                                if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                                    pixmap_item = item
+                                    break
+                            if pixmap_item:
+                                positions, values = get_profile_values(None, start_point, end_point, scene=other_scene, pixmap_item=pixmap_item)
+                                if positions is not None and values is not None:
+                                    profiles.append((positions, values))
+                                    labels.append(f"Window {len(profiles)}")
+                if profiles:
+                    for other_window2 in windows:
+                        other_child2 = other_window2.widget()
+                        if other_child2 and hasattr(other_child2, '_scene_main_topleft'):
+                            other_scene2 = other_child2._scene_main_topleft
+                            if hasattr(other_scene2, 'profile_dialog'):
+                                other_scene2.profile_dialog.update_profile(profiles, labels)
+
     def itemChange(self, change, value):
         """Handle position changes."""
         if change == QtWidgets.QGraphicsItem.ItemPositionChange and not self._updating:
             try:
                 self._updating = True  # Set flag to prevent recursion
-                
                 # Update line endpoint when handle is moved
                 line = self.parent_line.line()
                 if self.handle_num == 0:
                     self.parent_line.setLine(value.x(), value.y(), line.p2().x(), line.p2().y())
                 else:
                     self.parent_line.setLine(line.p1().x(), line.p1().y(), value.x(), value.y())
-                
                 # Update close button position
                 self.parent_line.updateCloseButtonPosition()
-                
-                # Get the scene and window
+                # --- profile_line 위치/모양 동기화 ---
                 scene = self.scene()
                 if scene and scene.views():
                     view = scene.views()[0]
                     window = view.window()
-                    
-                    # Get all windows and sync profile line position
                     if window and hasattr(window, '_mdiArea'):
                         windows = window._mdiArea.subWindowList()
                         for other_window in windows:
@@ -322,18 +358,17 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
                             if other_child and hasattr(other_child, '_scene_main_topleft'):
                                 other_scene = other_child._scene_main_topleft
                                 if other_scene != scene and hasattr(other_scene, 'profile_line'):
-                                    # Get the line coordinates
                                     line = self.parent_line.line()
-                                    # Update the other scene's profile line
                                     other_scene.profile_line.setLine(line.x1(), line.y1(), line.x2(), line.y2())
                                     other_scene.profile_line.updateHandles()
-                                    
-                    # Emit signal to update profile
+                # --- profile 업데이트 (공통 함수) ---
+                self.update_all_profiles_in_views()
+                # Emit signal to update profile
+                scene = self.scene()
+                if scene is not None and hasattr(scene, 'profile_line_changed'):
                     scene.profile_line_changed.emit()
-                    
             finally:
                 self._updating = False  # Always reset flag
-                
         return super().itemChange(change, value)
         
     def mousePressEvent(self, event):
@@ -349,43 +384,8 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
         if event.button() == QtCore.Qt.LeftButton:
             event.accept()
             super().mouseReleaseEvent(event)
-            
-            # Update profiles in all views
-            scene = self.scene()
-            if scene and scene.views():
-                view = scene.views()[0]
-                window = view.window()
-                if window and hasattr(window, '_mdiArea'):
-                    windows = window._mdiArea.subWindowList()
-                    profiles = []
-                    labels = []
-                    for other_window in windows:
-                        other_child = other_window.widget()
-                        if other_child and hasattr(other_child, '_scene_main_topleft'):
-                            other_scene = other_child._scene_main_topleft
-                            if hasattr(other_scene, 'profile_line'):
-                                # Get profile values for this scene
-                                line = other_scene.profile_line.line()
-                                start_point = (line.x1(), line.y1())
-                                end_point = (line.x2(), line.y2())
-                                
-                                # Get the image data
-                                pixmap_item = None
-                                for item in other_scene.items():
-                                    if isinstance(item, QtWidgets.QGraphicsPixmapItem):
-                                        pixmap_item = item
-                                        break
-                                
-                                if pixmap_item:
-                                    positions, values = get_profile_values(None, start_point, end_point, 
-                                                                        scene=other_scene, pixmap_item=pixmap_item)
-                                    if positions is not None and values is not None:
-                                        profiles.append((positions, values))
-                                        labels.append(f"Window {len(profiles)}")
-                    
-                    # Update the profile dialog with all profiles
-                    if profiles and hasattr(scene, 'profile_dialog'):
-                        scene.profile_dialog.update_profile(profiles, labels)
+            # 프로파일 업데이트 (공통 함수 호출)
+            self.update_all_profiles_in_views()
         else:
             event.ignore()
 
@@ -606,45 +606,36 @@ def get_profile_values(image, start_point, end_point, num_samples=1000, scene=No
         # Check if we're dealing with volumetric data
         if hasattr(scene, 'views') and scene.views():
             view = scene.views()[0]
-            window = view.window()
-            if window and hasattr(window, 'activeMdiChild'):
-                active_child = window.activeMdiChild
-                if hasattr(active_child, 'is_volumetric') and active_child.is_volumetric:
-                    # Get volumetric data handler
-                    volumetric_handler = active_child.volumetric_handler
-                    current_slice = active_child.current_slice
-                    
-                    try:
-                        # Open the image file and get the current slice
-                        with Image.open(volumetric_handler.filepath) as img:
-                            img.seek(current_slice)
-                            
-                            # Convert coordinates to integers and clip to image boundaries
-                            x_indices = np.clip(x.astype(int), 0, img.width - 1)
-                            y_indices = np.clip(y.astype(int), 0, img.height - 1)
-                            
-                            # Convert image to numpy array
-                            img_array = np.array(img)
-                            
-                            # Get values along the line
-                            if img.mode == 'L':  # 8-bit grayscale
+            mdi_child = view.parent()
+            if hasattr(mdi_child, 'is_volumetric') and mdi_child.is_volumetric:
+                volumetric_handler = mdi_child.volumetric_handler
+                current_slice = mdi_child.current_slice
+                try:
+                    # Open the image file and get the current slice
+                    with Image.open(volumetric_handler.filepath) as img:
+                        img.seek(current_slice)
+                        # Convert coordinates to integers and clip to image boundaries
+                        x_indices = np.clip(x.astype(int), 0, img.width - 1)
+                        y_indices = np.clip(y.astype(int), 0, img.height - 1)
+                        # Convert image to numpy array
+                        img_array = np.array(img)
+                        # Get values along the line
+                        if img.mode == 'L':  # 8-bit grayscale
+                            values = img_array[y_indices, x_indices]
+                        elif img.mode == 'I':  # 32-bit integer
+                            values = img_array[y_indices, x_indices]
+                        elif img.mode == 'F':  # 32-bit float
+                            values = img_array[y_indices, x_indices]
+                        else:  # RGB or RGBA
+                            if len(img_array.shape) == 3:
+                                # Average across color channels
+                                values = np.mean(img_array[y_indices, x_indices], axis=1)
+                            else:
                                 values = img_array[y_indices, x_indices]
-                            elif img.mode == 'I':  # 32-bit integer
-                                values = img_array[y_indices, x_indices]
-                            elif img.mode == 'F':  # 32-bit float
-                                values = img_array[y_indices, x_indices]
-                            else:  # RGB or RGBA
-                                if len(img_array.shape) == 3:
-                                    # Average across color channels
-                                    values = np.mean(img_array[y_indices, x_indices], axis=1)
-                                else:
-                                    values = img_array[y_indices, x_indices]
-                            
-                            return positions, values
-                            
-                    except Exception as e:
-                        print(f"Error reading volumetric data: {str(e)}")
-                        return positions, np.zeros_like(positions)
+                        return positions, values
+                except Exception as e:
+                    print(f"Error reading volumetric data: {str(e)}")
+                    return positions, np.zeros_like(positions)
         
         # For regular images, get pixel values using bilinear interpolation
         if image is not None:
