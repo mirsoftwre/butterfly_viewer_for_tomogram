@@ -104,10 +104,60 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
                 if self._moving:
                     # Update handle positions when line is moved
                     self.updateHandles()
-                    # Synchronize with other views
+                    
+                    # Get the scene and window
                     scene = self.scene()
-                    if scene:
-                        scene.sync_profile_line_position(self)
+                    if scene and scene.views():
+                        view = scene.views()[0]
+                        window = view.window()
+                        
+                        # Get all windows and sync profile line position
+                        if window and hasattr(window, '_mdiArea'):
+                            windows = window._mdiArea.subWindowList()
+                            for other_window in windows:
+                                other_child = other_window.widget()
+                                if other_child and hasattr(other_child, '_scene_main_topleft'):
+                                    other_scene = other_child._scene_main_topleft
+                                    if other_scene != scene and hasattr(other_scene, 'profile_line'):
+                                        # Get the line coordinates in scene coordinates
+                                        line = self.line()
+                                        pos = self.pos()
+                                        # Update the other scene's profile line position
+                                        other_scene.profile_line.setPos(pos)
+                                        other_scene.profile_line.updateHandles()
+                                        
+                            # Update profiles in all views
+                            profiles = []
+                            labels = []
+                            for other_window in windows:
+                                other_child = other_window.widget()
+                                if other_child and hasattr(other_child, '_scene_main_topleft'):
+                                    other_scene = other_child._scene_main_topleft
+                                    if hasattr(other_scene, 'profile_line'):
+                                        # Get profile values for this scene
+                                        line = other_scene.profile_line.line()
+                                        start_point = (line.x1() + other_scene.profile_line.pos().x(), 
+                                                     line.y1() + other_scene.profile_line.pos().y())
+                                        end_point = (line.x2() + other_scene.profile_line.pos().x(), 
+                                                   line.y2() + other_scene.profile_line.pos().y())
+                                        
+                                        # Get the image data
+                                        pixmap_item = None
+                                        for item in other_scene.items():
+                                            if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                                                pixmap_item = item
+                                                break
+                                        
+                                        if pixmap_item:
+                                            positions, values = get_profile_values(None, start_point, end_point, 
+                                                                                scene=other_scene, pixmap_item=pixmap_item)
+                                            if positions is not None and values is not None:
+                                                profiles.append((positions, values))
+                                                labels.append(f"Window {len(profiles)}")
+                            
+                            # Update the profile dialog with all profiles
+                            if profiles and hasattr(scene, 'profile_dialog'):
+                                scene.profile_dialog.update_profile(profiles, labels)
             finally:
                 self._updating = False  # Always reset flag
                 
@@ -258,11 +308,29 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
                 # Update close button position
                 self.parent_line.updateCloseButtonPosition()
                 
-                # Synchronize with other views
+                # Get the scene and window
                 scene = self.scene()
-                if scene:
-                    scene.sync_profile_line_position(self.parent_line)
+                if scene and scene.views():
+                    view = scene.views()[0]
+                    window = view.window()
+                    
+                    # Get all windows and sync profile line position
+                    if window and hasattr(window, '_mdiArea'):
+                        windows = window._mdiArea.subWindowList()
+                        for other_window in windows:
+                            other_child = other_window.widget()
+                            if other_child and hasattr(other_child, '_scene_main_topleft'):
+                                other_scene = other_child._scene_main_topleft
+                                if other_scene != scene and hasattr(other_scene, 'profile_line'):
+                                    # Get the line coordinates
+                                    line = self.parent_line.line()
+                                    # Update the other scene's profile line
+                                    other_scene.profile_line.setLine(line.x1(), line.y1(), line.x2(), line.y2())
+                                    other_scene.profile_line.updateHandles()
+                                    
+                    # Emit signal to update profile
                     scene.profile_line_changed.emit()
+                    
             finally:
                 self._updating = False  # Always reset flag
                 
@@ -281,6 +349,43 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
         if event.button() == QtCore.Qt.LeftButton:
             event.accept()
             super().mouseReleaseEvent(event)
+            
+            # Update profiles in all views
+            scene = self.scene()
+            if scene and scene.views():
+                view = scene.views()[0]
+                window = view.window()
+                if window and hasattr(window, '_mdiArea'):
+                    windows = window._mdiArea.subWindowList()
+                    profiles = []
+                    labels = []
+                    for other_window in windows:
+                        other_child = other_window.widget()
+                        if other_child and hasattr(other_child, '_scene_main_topleft'):
+                            other_scene = other_child._scene_main_topleft
+                            if hasattr(other_scene, 'profile_line'):
+                                # Get profile values for this scene
+                                line = other_scene.profile_line.line()
+                                start_point = (line.x1(), line.y1())
+                                end_point = (line.x2(), line.y2())
+                                
+                                # Get the image data
+                                pixmap_item = None
+                                for item in other_scene.items():
+                                    if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                                        pixmap_item = item
+                                        break
+                                
+                                if pixmap_item:
+                                    positions, values = get_profile_values(None, start_point, end_point, 
+                                                                        scene=other_scene, pixmap_item=pixmap_item)
+                                    if positions is not None and values is not None:
+                                        profiles.append((positions, values))
+                                        labels.append(f"Window {len(profiles)}")
+                    
+                    # Update the profile dialog with all profiles
+                    if profiles and hasattr(scene, 'profile_dialog'):
+                        scene.profile_dialog.update_profile(profiles, labels)
         else:
             event.ignore()
 
