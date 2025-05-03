@@ -1,16 +1,24 @@
 {
     "latest_version": "1.2.1",
-    "download_url": "https://tomocube.app.box.com/file/1850929233349",
+    "download_url": "https://tomocube.app.box.com/file/1850262097854",
     "min_required_version": "1.0.0",
     "is_critical": false,
     "update_history": [
         {
             "version": "1.2.1",
-            "release_date": "2024-05-02",
-            "download_url": "https://tomocube.app.box.com/file/1850929233349",
+            "release_date": "2025-05-03",
+            "download_url": "https://tomocube.app.box.com/file/1850262097854",
             "changes": [
-                "16-bit volumetric data was not loaded as volumetric data (bug fix)",
-                "Ctrl+Scroll is assigned for changing z slice (new feature)"
+                "Improve update checking by adding a new-version check at application startup.",
+                "Capture and export the profile graph for better data visualization.",
+                "Sync profile lines to ensure accurate representation of profile data.",
+                "Display the original value on the profile for enhanced clarity.",
+                "Assign Ctrl+Scroll for changing the z slice, improving navigation.",
+                "Fix the loading issue for 16-bit volumetric data to ensure proper functionality.",
+                "Enhance ProfileDialog management and ensure proper cleanup on close.",
+                "Fix the size of handles and close button on profile lines for better usability.",
+                "Improve the profile feature for a smoother user experience.",
+                "Fix the micrometer ruler for precise measurements."
             ]
         },
         {
@@ -51,4 +59,4 @@
             ]
         }
     ]
-} 
+}
