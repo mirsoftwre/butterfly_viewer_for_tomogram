@@ -60,10 +60,14 @@ class UpdateChecker(QtCore.QObject):
             return f"https://tomocube.box.com/shared/static/{shared_id}"
         return url
         
-    def check_for_updates(self):
-        """Check for updates by fetching and parsing the manifest file."""
+    def check_for_updates(self, force=False):
+        """Check for updates by fetching and parsing the manifest file.
+        
+        Args:
+            force (bool): If True, bypass the time check and force update check
+        """
         # Check if we should perform the update check
-        if not self.should_check_update():
+        if not force and not self.should_check_update():
             print("Skipping update check - less than 6 hours since last check")
             return
             

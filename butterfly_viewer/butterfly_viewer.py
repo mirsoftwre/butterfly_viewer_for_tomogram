@@ -1546,20 +1546,101 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
     
     def show_about(self):
         """Show about box."""
-        sp = "<br>"
-        title = "Butterfly Viewer for Volumetric Images"
-        text = "Butterfly Viewer for Volumetric Images"
-        text = text + sp + "Taehong Kim"
-        text = text + sp + "Version: " + VERSION
-        text = text + sp + "Source: <a href='https://github.com/mirsoftwre/butterfly_viewer_for_tomogram'>github.com/mirsoftwre/butterfly_viewer_for_tomogram</a>"
-        text = text + sp + "License: <a href='https://www.gnu.org/licenses/gpl-3.0.en.html'>GNU GPL v3</a> or later"
-        text = text + sp
-        text = text + sp + "Original Software: Butterfly Viewer"
-        text = text + sp + "Original Author: Lars Maxfield"
-        text = text + sp + "Based on version: 1.1"
-        text = text + sp + "Source: <a href='https://github.com/olive-groves/butterfly_viewer'>github.com/olive-groves/butterfly_viewer</a>"
-        text = text + sp + "Tutorial: <a href='https://olive-groves.github.io/butterfly_viewer'>olive-groves.github.io/butterfly_viewer</a>"
-        box = QtWidgets.QMessageBox.about(self, title, text)
+        # Create custom about dialog
+        about_dialog = QtWidgets.QDialog(self)
+        about_dialog.setWindowTitle("About " + APPNAME)
+        about_dialog.setMinimumWidth(400)
+        
+        layout = QtWidgets.QVBoxLayout(about_dialog)
+        
+        # Title and version info
+        title_widget = QtWidgets.QWidget()
+        title_layout = QtWidgets.QHBoxLayout(title_widget)
+        
+        title_label = QtWidgets.QLabel("Butterfly Viewer for Volumetric Images")
+        title_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
+        title_layout.addWidget(title_label)
+        
+        layout.addWidget(title_widget)
+        
+        # Current version
+        version_widget = QtWidgets.QWidget()
+        version_layout = QtWidgets.QHBoxLayout(version_widget)
+        
+        version_label = QtWidgets.QLabel(f"Current Version: {VERSION}")
+        version_layout.addWidget(version_label)
+        
+        # Details button (initially hidden)
+        details_button = QtWidgets.QPushButton("Update available")
+        details_button.setVisible(False)
+        details_button.setStyleSheet("color: #2196F3;")  # Blue color for update available
+        details_button.setMaximumWidth(120)
+        version_layout.addWidget(details_button)
+        
+        version_layout.addStretch()
+        layout.addWidget(version_widget)
+        
+        # Other info
+        info_text = QtWidgets.QLabel()
+        info_text.setText(
+            "Taehong Kim<br>"
+            "Source: <a href='https://github.com/mirsoftwre/butterfly_viewer_for_tomogram'>github.com/mirsoftwre/butterfly_viewer_for_tomogram</a><br>"
+            "License: <a href='https://www.gnu.org/licenses/gpl-3.0.en.html'>GNU GPL v3</a> or later<br><br>"
+            "Original Software: Butterfly Viewer<br>"
+            "Original Author: Lars Maxfield<br>"
+            "Based on version: 1.1<br>"
+            "Source: <a href='https://github.com/olive-groves/butterfly_viewer'>github.com/olive-groves/butterfly_viewer</a><br>"
+            "Tutorial: <a href='https://olive-groves.github.io/butterfly_viewer'>olive-groves.github.io/butterfly_viewer</a>"
+        )
+        info_text.setOpenExternalLinks(True)
+        layout.addWidget(info_text)
+        
+        # Close button
+        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        button_box.rejected.connect(about_dialog.reject)
+        layout.addWidget(button_box)
+        
+        # Store update info for later use
+        update_info = {'version': '', 'download_url': '', 'history': []}
+        
+        # Function to handle update check results
+        def handle_version_check(new_version, download_url, update_history, error):
+            if error:
+                version_label.setText(f"Current Version: {VERSION} (Check failed)")
+                return
+                
+            if new_version:
+                details_button.setVisible(True)
+                
+                # Store update info
+                update_info['version'] = new_version
+                update_info['download_url'] = download_url
+                update_info['history'] = update_history
+            else:
+                version_label.setText(f"Current Version: {VERSION} (Up to date)")
+                details_button.setVisible(False)
+        
+        # Function to show update details
+        def show_update_details():
+            if update_info['version']:
+                dialog = UpdateDialog(
+                    VERSION,
+                    update_info['version'],
+                    update_info['download_url'],
+                    update_info['history'],
+                    about_dialog
+                )
+                dialog.exec_()
+        
+        # Connect details button
+        details_button.clicked.connect(show_update_details)
+        
+        # Force check for updates
+        checker = UpdateChecker(VERSION, UPDATE_MANIFEST_URL, self)
+        checker.update_available.connect(handle_version_check)
+        checker.check_for_updates(force=True)  # Add force parameter to bypass time check
+        
+        about_dialog.exec_()
 
     # View loading methods
 
