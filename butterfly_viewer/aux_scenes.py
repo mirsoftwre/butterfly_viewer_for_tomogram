@@ -50,6 +50,9 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
         self.profile_dialog = None
         self.in_profile_mode = False
 
+        # Add statistics tool support
+        self.in_statistics_mode = False
+
         self.background_colors = [["Dark gray (default)", 32, 32, 32],
                                   ["White", 255, 255, 255],
                                   ["Light gray", 223, 223, 223],
@@ -83,6 +86,7 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
     right_click_crop = QtCore.pyqtSignal()  # New signal for crop functionality
     right_click_crop3D = QtCore.pyqtSignal()  # New signal for 3D crop functionality
     right_click_crop_sync = QtCore.pyqtSignal()  # 새로운 시그널 추가
+    right_click_statistics = QtCore.pyqtSignal()  # New signal for statistics tool
     
     # Add new signal for profile line changes
     profile_line_changed = QtCore.pyqtSignal()
@@ -168,6 +172,11 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
             action_profile = menu_tools.addAction("Profile")
             action_profile.setToolTip("Draw a line to show pixel value profile")
             action_profile.triggered.connect(lambda: self.start_profile_tool(scene_pos))
+            
+            # Add Statistics action
+            action_statistics = menu_tools.addAction("Statistics")
+            action_statistics.setToolTip("Calculate statistics for a selected region")
+            action_statistics.triggered.connect(lambda: self.right_click_statistics.emit())
             
             # Add crop action to Image menu
             action_crop = menu_image.addAction("Crop")

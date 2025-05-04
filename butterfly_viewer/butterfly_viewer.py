@@ -23,6 +23,7 @@ import time
 import os
 from datetime import datetime
 import math
+import numpy as np
 import webbrowser
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -727,6 +728,9 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self._handling_slice_sync = False  # Add flag for slice synchronization
         self._handling_range_sync = False  # Add flag for range synchronization
         self._last_accessed_fullpath = None
+
+        # Add statistics mode flag
+        self.in_statistics_mode = False
 
         self._mdiArea = QMdiAreaWithCustomSignals()
         self._mdiArea.file_path_dragged.connect(self.display_dragged_grayout)
@@ -1876,19 +1880,25 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         # Connect the crop sync signal from context menu
         child._scene_main_topleft.right_click_crop_sync.connect(self.crop_sync_selected_area)
         
-        # We need to check if these scenes exist and connect their crop signals too
+        # Connect the statistics signal from context menu
+        child._scene_main_topleft.right_click_statistics.connect(self.start_statistics_tool)
+        
+        # We need to check if these scenes exist and connect their signals too
         if hasattr(child, '_scene_topright'):
             child._scene_topright.right_click_crop.connect(self.cropSelectedArea)
             child._scene_topright.right_click_crop3D.connect(self.crop3DSelectedArea)
             child._scene_topright.right_click_crop_sync.connect(self.crop_sync_selected_area)
+            child._scene_topright.right_click_statistics.connect(self.start_statistics_tool)
         if hasattr(child, '_scene_bottomleft'):
             child._scene_bottomleft.right_click_crop.connect(self.cropSelectedArea)
             child._scene_bottomleft.right_click_crop3D.connect(self.crop3DSelectedArea)
             child._scene_bottomleft.right_click_crop_sync.connect(self.crop_sync_selected_area)
+            child._scene_bottomleft.right_click_statistics.connect(self.start_statistics_tool)
         if hasattr(child, '_scene_bottomright'):
             child._scene_bottomright.right_click_crop.connect(self.cropSelectedArea)
             child._scene_bottomright.right_click_crop3D.connect(self.crop3DSelectedArea)
             child._scene_bottomright.right_click_crop_sync.connect(self.crop_sync_selected_area)
+            child._scene_bottomright.right_click_statistics.connect(self.start_statistics_tool)
 
         return child
 
@@ -4656,6 +4666,487 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 childRect = QtCore.QRect(childTopLeft, childBottomRight).normalized()
                 child.syncCropSelection.setGeometry(childRect)
                 child.syncCropSelection.show()
+
+    def start_statistics_tool(self):
+        """Activate the statistics tool to calculate statistics for a selected region."""
+        # Check if we have an active window
+        child = self.activeMdiChild
+        if not child:
+            return
+            
+        # Clean up any existing crop selection to avoid memory issues
+        self.cleanupCropTools()
+            
+        # Set the window to statistics mode
+        self.in_statistics_mode = True
+        
+        # Get the viewport of the active window
+        viewport = child.viewport
+        
+        # Create rubber band for selection
+        self.statisticsSelectionWidget = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, viewport)
+        
+        # Set handle size
+        self.handleSize = 10
+        
+        # Create handles for the rubber band
+        self.statisticsHandles = []
+        for _ in range(8):  # 8 handles (corners and midpoints)
+            handle = QtWidgets.QLabel(viewport)
+            handle.setFixedSize(self.handleSize, self.handleSize)
+            handle.setStyleSheet("background-color: white; border: 1px solid black;")
+            handle.hide()
+            self.statisticsHandles.append(handle)
+        
+        # Dictionary to store statistics labels and close buttons for each window
+        self.stats_widgets = {}
+        
+        # Initialize drag variables
+        self.statsDragMode = None
+        self.activeStatsHandle = None
+        self.statsOrigin = None
+        self.moveStatsOffset = None
+        
+        # Install event filter to handle mouse events
+        viewport.installEventFilter(self)
+        
+        # Update status bar
+        self.statusBar().showMessage("Select an area to calculate statistics. Click and drag to create a selection.")
+
+    def cleanup_statistics_tool(self):
+        """Clean up all statistics-related UI elements and state."""
+        # Exit statistics mode
+        self.in_statistics_mode = False
+        
+        # Clean up selection widget
+        if hasattr(self, 'statisticsSelectionWidget') and self.statisticsSelectionWidget:
+            try:
+                self.statisticsSelectionWidget.hide()
+                self.statisticsSelectionWidget.setParent(None)
+                self.statisticsSelectionWidget.deleteLater()
+            except RuntimeError:
+                pass
+            self.statisticsSelectionWidget = None
+        
+        # Clean up handles
+        if hasattr(self, 'statisticsHandles'):
+            for handle in self.statisticsHandles:
+                if handle:
+                    try:
+                        handle.hide()
+                        handle.setParent(None)
+                        handle.deleteLater()
+                    except RuntimeError:
+                        pass
+            self.statisticsHandles = []
+        
+        # Clean up statistics widgets for each window
+        if hasattr(self, 'stats_widgets'):
+            for window_id in list(self.stats_widgets.keys()):
+                widgets = self.stats_widgets[window_id]
+                try:
+                    widgets['label'].hide()
+                    widgets['label'].setParent(None)
+                    widgets['label'].deleteLater()
+                    widgets['close'].hide()
+                    widgets['close'].setParent(None)
+                    widgets['close'].deleteLater()
+                except RuntimeError:
+                    pass
+            self.stats_widgets.clear()
+        
+        # Clean up synchronized selections in all views
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            child = window.widget()
+            if hasattr(child, 'syncStatsSelection'):
+                try:
+                    child.syncStatsSelection.hide()
+                    child.syncStatsSelection.setParent(None)
+                    child.syncStatsSelection.deleteLater()
+                    delattr(child, 'syncStatsSelection')
+                except RuntimeError:
+                    pass
+        
+        # Clean up drag variables
+        self.statsDragMode = None
+        self.activeStatsHandle = None
+        self.statsOrigin = None
+        self.moveStatsOffset = None
+        
+        # Update status bar
+        self.statusBar().showMessage("Statistics tool closed", 2000)
+
+    def update_statistics_display(self):
+        """Update the statistics display for all views."""
+        if not hasattr(self, 'statisticsSelectionWidget') or not self.statisticsSelectionWidget:
+            return
+            
+        # Get the selection rectangle in viewport coordinates
+        cropRect = self.statisticsSelectionWidget.geometry()
+        
+        # Get all windows
+        windows = self._mdiArea.subWindowList()
+        
+        # Process each window
+        for window in windows:
+            child = window.widget()
+            if not child:
+                continue
+            
+            # Get the view and scene for this window
+            view = child.view
+            scene = view.scene()
+            if not scene:
+                continue
+            
+            # Convert the crop rectangle to scene coordinates for this view
+            topLeft = view.mapToScene(cropRect.topLeft())
+            bottomRight = view.mapToScene(cropRect.bottomRight())
+            sceneRect = QtCore.QRectF(topLeft, bottomRight)
+            
+            # Find the pixmap item in the scene
+            pixmapItem = None
+            for item in scene.items():
+                if isinstance(item, QtWidgets.QGraphicsPixmapItem):
+                    pixmapItem = item
+                    break
+                    
+            if not pixmapItem:
+                continue
+            
+            # Convert scene coordinates to pixmap coordinates
+            itemRect = pixmapItem.mapFromScene(sceneRect).boundingRect()
+            
+            # Get the original data
+            if hasattr(child, 'is_volumetric') and child.is_volumetric:
+                # For volumetric data
+                try:
+                    from PIL import Image
+                    import numpy as np
+                    
+                    current_slice = child.current_slice
+                    with Image.open(child.volumetric_handler.filepath) as img:
+                        img.seek(current_slice)
+                        image_data = np.array(img)
+                except Exception as e:
+                    print(f"Error loading volumetric data: {str(e)}")
+                    continue
+            else:
+                # For regular images
+                try:
+                    from PIL import Image
+                    import numpy as np
+                    
+                    with Image.open(child.currentFile) as img:
+                        image_data = np.array(img)
+                except Exception as e:
+                    print(f"Error loading image data: {str(e)}")
+                    continue
+            
+            # Calculate statistics
+            stats = self.calculate_region_statistics(image_data, itemRect.toRect())
+            if stats:
+                # Create or get statistics widgets for this window
+                window_id = id(window)
+                if window_id not in self.stats_widgets:
+                    # Create new statistics label
+                    stats_label = QtWidgets.QLabel(child.viewport)
+                    stats_label.setStyleSheet("""
+                        QLabel {
+                            background-color: rgba(0, 0, 0, 180);
+                            color: white;
+                            padding: 5px;
+                            border-radius: 3px;
+                            font-size: 9pt;
+                        }
+                    """)
+                    
+                    # Create new close button
+                    close_button = ViewerButton(style="trigger-severe")
+                    close_button.setIcon(":/icons/close.svg")
+                    close_button.setToolTip("Close statistics tool")
+                    close_button.setParent(child.viewport)
+                    close_button.clicked.connect(self.cleanup_statistics_tool)
+                    
+                    self.stats_widgets[window_id] = {
+                        'label': stats_label,
+                        'close': close_button
+                    }
+                
+                # Get the widgets
+                stats_label = self.stats_widgets[window_id]['label']
+                close_button = self.stats_widgets[window_id]['close']
+                
+                # Update statistics text
+                file_name = os.path.basename(child.currentFile)
+                stats_text = f"Statistics for {file_name}:\n"
+                stats_text += f"Min: {stats['min']:.1f}\n"
+                stats_text += f"Max: {stats['max']:.1f}\n"
+                stats_text += f"Mean: {stats['mean']:.1f}\n"
+                stats_text += f"Std: {stats['std']:.1f}"
+                
+                stats_label.setText(stats_text)
+                stats_label.adjustSize()
+                
+                # Position label near selection in this view
+                childRect = child.syncStatsSelection.geometry() if hasattr(child, 'syncStatsSelection') else cropRect
+                labelPos = childRect.topRight()
+                labelPos.setX(labelPos.x() + 10)  # Offset from selection
+                stats_label.move(labelPos)
+                stats_label.show()
+                
+                # Position close button
+                buttonPos = stats_label.geometry().topRight()
+                buttonPos.setX(buttonPos.x() + 5)
+                close_button.move(buttonPos)
+                close_button.show()
+
+    def calculate_region_statistics(self, image_data, rect):
+        """Calculate statistics for the selected region.
+        
+        Args:
+            image_data: numpy array of image data
+            rect: QRect defining the region
+            
+        Returns:
+            dict: Dictionary containing min, max, mean, and std values
+        """
+        try:
+            # Ensure coordinates are within image bounds
+            x = max(0, int(rect.x()))
+            y = max(0, int(rect.y()))
+            w = min(image_data.shape[1] - x, int(rect.width()))
+            h = min(image_data.shape[0] - y, int(rect.height()))
+            
+            # Extract the region
+            region = image_data[y:y+h, x:x+w]
+            
+            # For RGB images, convert to grayscale
+            if len(region.shape) == 3:
+                # Use standard RGB to grayscale conversion formula
+                region = np.dot(region[...,:3], [0.2989, 0.5870, 0.1140])
+            
+            # Calculate statistics
+            stats = {
+                'min': float(np.min(region)),
+                'max': float(np.max(region)),
+                'mean': float(np.mean(region)),
+                'std': float(np.std(region))
+            }
+            
+            return stats
+        except Exception as e:
+            print(f"Error calculating statistics: {str(e)}")
+            return None
+
+    def updateStatisticsHandlePositions(self):
+        """Update the positions of the handles around the statistics selection widget."""
+        if not hasattr(self, 'statisticsSelectionWidget') or not self.statisticsSelectionWidget:
+            return
+            
+        # Get the current geometry of the selection widget
+        rect = self.statisticsSelectionWidget.geometry()
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        
+        # Calculate handle positions
+        positions = [
+            (x, y),                         # 0: Top-left
+            (x + w//2 - self.handleSize//2, y),  # 1: Top-center
+            (x + w - self.handleSize, y),   # 2: Top-right
+            (x + w - self.handleSize, y + h//2 - self.handleSize//2),  # 3: Middle-right
+            (x + w - self.handleSize, y + h - self.handleSize),  # 4: Bottom-right
+            (x + w//2 - self.handleSize//2, y + h - self.handleSize),  # 5: Bottom-center
+            (x, y + h - self.handleSize),   # 6: Bottom-left
+            (x, y + h//2 - self.handleSize//2)  # 7: Middle-left
+        ]
+        
+        # Position handles
+        for i, handle in enumerate(self.statisticsHandles):
+            handle.move(positions[i][0], positions[i][1])
+
+    def syncStatisticsSelectionToAllViews(self):
+        """Synchronize the statistics selection to all views."""
+        if not hasattr(self, 'statisticsSelectionWidget') or not self.statisticsSelectionWidget:
+            return
+            
+        # Get the active window and its selection
+        activeChild = self.activeMdiChild
+        if not activeChild:
+            return
+            
+        # Get the crop rectangle in viewport coordinates
+        cropRect = self.statisticsSelectionWidget.geometry()
+        
+        # Convert to scene coordinates in the active view
+        activeView = activeChild.view
+        topLeft = activeView.mapToScene(cropRect.topLeft())
+        bottomRight = activeView.mapToScene(cropRect.bottomRight())
+        sceneRect = QtCore.QRectF(topLeft, bottomRight)
+        
+        # Update all other windows
+        windows = self._mdiArea.subWindowList()
+        for window in windows:
+            child = window.widget()
+            if child != activeChild:
+                # Convert scene coordinates to this view's coordinates
+                childView = child.view
+                childTopLeft = childView.mapFromScene(sceneRect.topLeft())
+                childBottomRight = childView.mapFromScene(sceneRect.bottomRight())
+                
+                # Create or update selection widget for this view
+                if not hasattr(child, 'syncStatsSelection'):
+                    child.syncStatsSelection = QtWidgets.QRubberBand(QtWidgets.QRubberBand.Rectangle, child.viewport)
+                    child.syncStatsSelection.setStyleSheet("""
+                        QRubberBand {
+                            border: 2px solid #00A0FF;
+                            background-color: rgba(0, 160, 255, 30);
+                        }
+                    """)
+                
+                # Set the geometry of the selection
+                childRect = QtCore.QRect(childTopLeft, childBottomRight).normalized()
+                child.syncStatsSelection.setGeometry(childRect)
+                child.syncStatsSelection.show()
+
+    def eventFilter(self, source, event):
+        """Event filter to handle statistics selection, resizing and movement."""
+        # Handle statistics mode
+        if hasattr(self, 'in_statistics_mode') and self.in_statistics_mode:
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                pos = event.pos()
+                
+                # Check if we're clicking on a handle
+                for i, handle in enumerate(self.statisticsHandles):
+                    if handle.isVisible() and handle.geometry().contains(pos):
+                        self.statsDragMode = "resize"
+                        self.activeStatsHandle = i
+                        self.statsOrigin = pos
+                        return True
+                        
+                # Check if we're on the selection widget
+                if self.statisticsSelectionWidget.isVisible() and self.statisticsSelectionWidget.geometry().contains(pos):
+                    self.statsDragMode = "move"
+                    self.statsOrigin = pos
+                    self.moveStatsOffset = pos - self.statisticsSelectionWidget.pos()
+                    return True
+                        
+                # Check if we're clicking on the statistics label or close button
+                if (hasattr(self, 'statisticsLabel') and self.statisticsLabel.isVisible() and 
+                    self.statisticsLabel.geometry().contains(pos)):
+                    return True
+                    
+                if (hasattr(self, 'closeStatsButton') and self.closeStatsButton.isVisible() and 
+                    self.closeStatsButton.geometry().contains(pos)):
+                    return True
+                        
+                # Otherwise start creating a new selection
+                self.statsDragMode = "create"
+                self.statsOrigin = pos
+                self.statisticsSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+                self.statisticsSelectionWidget.show()
+                
+                # Hide handles when creating a new selection
+                for handle in self.statisticsHandles:
+                    handle.hide()
+                    
+                # Hide statistics until selection is complete
+                if hasattr(self, 'statisticsLabel'):
+                    self.statisticsLabel.hide()
+                if hasattr(self, 'closeStatsButton'):
+                    self.closeStatsButton.hide()
+                    
+                return True
+                        
+            # Mouse move event - update selection, position or size
+            elif event.type() == QtCore.QEvent.MouseMove:
+                if self.statsOrigin is None:
+                    return super().eventFilter(source, event)
+                        
+                pos = event.pos()
+                        
+                if self.statsDragMode == "create":
+                    # Creating a new selection
+                    self.statisticsSelectionWidget.setGeometry(QtCore.QRect(self.statsOrigin, pos).normalized())
+                        
+                elif self.statsDragMode == "move":
+                    # Moving the selection
+                    newPos = pos - self.moveStatsOffset
+                    self.statisticsSelectionWidget.move(newPos)
+                        
+                elif self.statsDragMode == "resize" and self.activeStatsHandle is not None:
+                    # Resizing using a handle
+                    rect = self.statisticsSelectionWidget.geometry()
+                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                        
+                    dx = pos.x() - self.statsOrigin.x()
+                    dy = pos.y() - self.statsOrigin.y()
+                    self.statsOrigin = pos
+                        
+                    # Create new geometry based on which handle is being dragged
+                    newRect = QtCore.QRect(rect)
+                        
+                    if self.activeStatsHandle == 0:  # Top-left
+                        newRect.setLeft(x + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 1:  # Top-center
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 2:  # Top-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 3:  # Middle-right
+                        newRect.setRight(x + w + dx)
+                    elif self.activeStatsHandle == 4:  # Bottom-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 5:  # Bottom-center
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 6:  # Bottom-left
+                        newRect.setLeft(x + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 7:  # Middle-left
+                        newRect.setLeft(x + dx)
+                        
+                    # Ensure we have a valid rect
+                    normalizedRect = newRect.normalized()
+                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                        self.statisticsSelectionWidget.setGeometry(normalizedRect)
+                    
+                # Update handle positions
+                self.updateStatisticsHandlePositions()
+                        
+                # Show handles
+                if self.statisticsSelectionWidget.width() > 10 and self.statisticsSelectionWidget.height() > 10:
+                    for handle in self.statisticsHandles:
+                        handle.show()
+                
+                # Synchronize selection to all views
+                self.syncStatisticsSelectionToAllViews()
+                
+                # Update statistics
+                self.update_statistics_display()
+                        
+                return True
+                        
+            # Mouse release event
+            elif event.type() == QtCore.QEvent.MouseButtonRelease:
+                if self.statsDragMode is not None:
+                    # Update handle positions one final time
+                    self.updateStatisticsHandlePositions()
+                        
+                    # Reset drag state
+                    self.statsDragMode = None
+                    self.activeStatsHandle = None
+                        
+                    # Synchronize final position to all views
+                    self.syncStatisticsSelectionToAllViews()
+                    
+                    # Update statistics one final time
+                    self.update_statistics_display()
+                        
+                    return True
+        
+        return super().eventFilter(source, event)
 
 def main():
     """Run MultiViewMainWindow as main app.

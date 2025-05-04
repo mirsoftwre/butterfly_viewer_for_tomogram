@@ -344,6 +344,72 @@ The Profile Tool allows users to analyze pixel values along a user-defined line 
 3. Multiple profiles can be effectively compared
 4. Profile data accurately represents image pixel values
 
+# Statistics Tool Requirements
+
+## Overview
+The Statistics Tool allows users to analyze statistical values (minimum, maximum, mean, standard deviation) of pixel intensities within a user-defined region across multiple synchronized images.
+
+## Detailed Requirements
+
+### User Interface
+1. Add a new menu item "Statistics" under the Tools menu in the context menu
+2. Implement a region selection interface that allows users to:
+   - Draw a rectangular region on the image
+   - Adjust the region position and size using handles
+   - See real-time updates of statistics as the region changes
+   - View synchronized selection regions across multiple images
+
+### Region Selection Tool
+1. Interactive region drawing tool with:
+   - Clear visual feedback during region drawing
+   - Handles at corners and edges for resizing
+   - Ability to drag the entire region
+   - Visual indication of the active region
+   - Synchronized regions across all open images
+
+### Statistics Display
+1. Statistics panel showing:
+   - Minimum pixel value
+   - Maximum pixel value
+   - Mean pixel value
+   - Standard deviation
+2. Real-time updates when:
+   - Region position is adjusted
+   - Region size is changed
+   - Image content changes
+3. Display position:
+   - Adjacent to the selected region
+   - Non-interfering with image viewing
+   - Visible across all synchronized views
+
+### Multi-Image Support
+1. Synchronized display of statistics from multiple images:
+   - Same region position and size across all synchronized views
+   - Individual statistics for each image
+   - Clear labeling to identify which statistics belong to which image
+2. Support for different image types:
+   - Grayscale images
+   - Volumetric images (statistics at current Z-slice)
+   - Original data values used for calculation
+
+### Technical Requirements
+1. Efficient calculation of statistics within the selected region
+2. Real-time updating of statistics during region adjustments
+3. Proper handling of image boundaries
+4. Support for high bit-depth images and different data types
+5. Calculations based on original image data, not display values
+
+### User Controls
+1. Close button to exit statistics mode
+2. Clear visual indication of active statistics mode
+3. Intuitive interaction with selection region
+
+## Success Criteria
+1. Users can easily draw and adjust statistics regions
+2. Statistics display updates smoothly during region adjustments
+3. Multiple image statistics can be effectively compared
+4. Statistics accurately represent original image data values
+
 ## 10. Auto-Update System
 
 ### 10.1 Overview
