@@ -13,6 +13,7 @@ import re
 from packaging import version
 from PyQt5 import QtCore, QtWidgets, QtGui
 import webbrowser
+import time
 
 class UpdateChecker(QtCore.QObject):
     """Handles checking for software updates."""
@@ -30,6 +31,18 @@ class UpdateChecker(QtCore.QObject):
         super().__init__(parent)
         self.current_version = current_version
         self.manifest_url = manifest_url
+        self.settings = QtCore.QSettings()
+        
+    def should_check_update(self):
+        """Check if enough time has passed since the last update check.
+        
+        Returns:
+            bool: True if should check for updates, False otherwise
+        """
+        last_check = self.settings.value('last_update_check', 0, type=float)
+        current_time = time.time()
+        # Check if 6 hours (21600 seconds) have passed
+        return (current_time - last_check) >= 21600
         
     def convert_box_shared_link(self, url):
         """Convert Box.com shared link to direct download URL.
@@ -49,6 +62,11 @@ class UpdateChecker(QtCore.QObject):
         
     def check_for_updates(self):
         """Check for updates by fetching and parsing the manifest file."""
+        # Check if we should perform the update check
+        if not self.should_check_update():
+            print("Skipping update check - less than 6 hours since last check")
+            return
+            
         try:
             # Convert Box.com shared link to direct download URL
             download_url = self.convert_box_shared_link(self.manifest_url)
@@ -100,6 +118,9 @@ class UpdateChecker(QtCore.QObject):
             
             print(f"Current version: {self.current_version}")
             print(f"Latest version: {latest_version}")
+            
+            # Save the current time as last check time
+            self.settings.setValue('last_update_check', time.time())
             
             # Compare versions
             if version.parse(latest_version) > version.parse(self.current_version):
