@@ -48,7 +48,7 @@ os.environ["QT_SCALE_FACTOR"]             = "1"
 COMPANY = "Mir Software"
 DOMAIN = "https://github.com/mirsoftwre/butterfly_viewer_for_tomogram"
 APPNAME = "Butterfly Viewer for Volumetric Images"
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 UPDATE_MANIFEST_URL = "https://tomocube.box.com/s/ehjgwf7p9c26wznsmdyw8hkint5dltnf"
 
 SETTING_RECENTFILELIST = "recentfilelist"

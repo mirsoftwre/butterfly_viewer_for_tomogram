@@ -1,8 +1,28 @@
 {
-    "latest_version": "1.2.1",
+    "latest_version": "1.3.0",
     "min_required_version": "1.0.0",
     "is_critical": false,
     "update_history": [
+        {
+            "version": "1.3.0",
+            "release_date": "2025-05-04",
+            "download_url": "https://tomocube.app.box.com/file/1850262097854",
+            "changes": [
+                "CHANGELOG",
+                "[Added] Introduce a new region statistics tool for enhanced data analysis.",
+                "[Added] Capture and export profile graphs for better visualization.",
+                "[Added] Include a new-version check at application startup for timely updates.",
+                "[Changed] Display software update information in the About window for user awareness.",
+                "[Changed] Enhance ProfileDialog management and ensure proper cleanup on close.",
+                "[Fixed] Synchronize crop selection across all views for consistent user experience.",
+                "[Fixed] Address bug causing multiple images in async mode to share identical data ranges.",
+                "[Fixed] Resolve intensity value display bug at mouse position for accurate readings.",
+                "[Fixed] Sync profile lines to maintain consistency across profiles.",
+                "[Fixed] Correct micrometer ruler functionality for precise measurements.",
+                "[Changed] Display the original value on profiles for clarity.",
+                "[Changed] Fix size of handles and close button on profile lines for better usability."
+            ]
+        },
         {
             "version": "1.2.1",
             "release_date": "2025-05-03",
