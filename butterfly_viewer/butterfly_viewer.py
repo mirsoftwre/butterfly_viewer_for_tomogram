@@ -3853,7 +3853,142 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     self.syncCropSelectionToAllViews()
                         
                     return True
-    
+                
+        # Handle statistics mode
+        elif hasattr(self, 'in_statistics_mode') and self.in_statistics_mode:
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                pos = event.pos()
+                
+                # Check if we're clicking on a handle
+                for i, handle in enumerate(self.statisticsHandles):
+                    if handle.isVisible() and handle.geometry().contains(pos):
+                        self.statsDragMode = "resize"
+                        self.activeStatsHandle = i
+                        self.statsOrigin = pos
+                        return True
+                        
+                # Check if we're on the selection widget
+                if self.statisticsSelectionWidget.isVisible() and self.statisticsSelectionWidget.geometry().contains(pos):
+                    self.statsDragMode = "move"
+                    self.statsOrigin = pos
+                    self.moveStatsOffset = pos - self.statisticsSelectionWidget.pos()
+                    return True
+                        
+                # Check if we're clicking on the statistics label or close button
+                if (hasattr(self, 'statisticsLabel') and self.statisticsLabel.isVisible() and 
+                    self.statisticsLabel.geometry().contains(pos)):
+                    return True
+                    
+                if (hasattr(self, 'closeStatsButton') and self.closeStatsButton.isVisible() and 
+                    self.closeStatsButton.geometry().contains(pos)):
+                    return True
+                        
+                # Otherwise start creating a new selection
+                self.statsDragMode = "create"
+                self.statsOrigin = pos
+                self.statisticsSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+                self.statisticsSelectionWidget.show()
+                
+                # Hide handles when creating a new selection
+                for handle in self.statisticsHandles:
+                    handle.hide()
+                    
+                # Hide statistics until selection is complete
+                if hasattr(self, 'statisticsLabel'):
+                    self.statisticsLabel.hide()
+                if hasattr(self, 'closeStatsButton'):
+                    self.closeStatsButton.hide()
+                    
+                return True
+                        
+            # Mouse move event - update selection, position or size
+            elif event.type() == QtCore.QEvent.MouseMove:
+                if self.statsOrigin is None:
+                    return super().eventFilter(source, event)
+                        
+                pos = event.pos()
+                        
+                if self.statsDragMode == "create":
+                    # Creating a new selection
+                    self.statisticsSelectionWidget.setGeometry(QtCore.QRect(self.statsOrigin, pos).normalized())
+                        
+                elif self.statsDragMode == "move":
+                    # Moving the selection
+                    newPos = pos - self.moveStatsOffset
+                    self.statisticsSelectionWidget.move(newPos)
+                        
+                elif self.statsDragMode == "resize" and self.activeStatsHandle is not None:
+                    # Resizing using a handle
+                    rect = self.statisticsSelectionWidget.geometry()
+                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                        
+                    dx = pos.x() - self.statsOrigin.x()
+                    dy = pos.y() - self.statsOrigin.y()
+                    self.statsOrigin = pos
+                        
+                    # Create new geometry based on which handle is being dragged
+                    newRect = QtCore.QRect(rect)
+                        
+                    if self.activeStatsHandle == 0:  # Top-left
+                        newRect.setLeft(x + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 1:  # Top-center
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 2:  # Top-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setTop(y + dy)
+                    elif self.activeStatsHandle == 3:  # Middle-right
+                        newRect.setRight(x + w + dx)
+                    elif self.activeStatsHandle == 4:  # Bottom-right
+                        newRect.setRight(x + w + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 5:  # Bottom-center
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 6:  # Bottom-left
+                        newRect.setLeft(x + dx)
+                        newRect.setBottom(y + h + dy)
+                    elif self.activeStatsHandle == 7:  # Middle-left
+                        newRect.setLeft(x + dx)
+                        
+                    # Ensure we have a valid rect
+                    normalizedRect = newRect.normalized()
+                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                        self.statisticsSelectionWidget.setGeometry(normalizedRect)
+                    
+                # Update handle positions
+                self.updateStatisticsHandlePositions()
+                        
+                # Show handles
+                if self.statisticsSelectionWidget.width() > 10 and self.statisticsSelectionWidget.height() > 10:
+                    for handle in self.statisticsHandles:
+                        handle.show()
+                
+                # Synchronize selection to all views
+                self.syncStatisticsSelectionToAllViews()
+                
+                # Update statistics
+                self.update_statistics_display()
+                        
+                return True
+                        
+            # Mouse release event
+            elif event.type() == QtCore.QEvent.MouseButtonRelease:
+                if self.statsDragMode is not None:
+                    # Update handle positions one final time
+                    self.updateStatisticsHandlePositions()
+                        
+                    # Reset drag state
+                    self.statsDragMode = None
+                    self.activeStatsHandle = None
+                        
+                    # Synchronize final position to all views
+                    self.syncStatisticsSelectionToAllViews()
+                    
+                    # Update statistics one final time
+                    self.update_statistics_display()
+                        
+                    return True
+        
         return super().eventFilter(source, event)
 
     def crop3DSelectedArea(self):
@@ -5008,145 +5143,6 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 childRect = QtCore.QRect(childTopLeft, childBottomRight).normalized()
                 child.syncStatsSelection.setGeometry(childRect)
                 child.syncStatsSelection.show()
-
-    def eventFilter(self, source, event):
-        """Event filter to handle statistics selection, resizing and movement."""
-        # Handle statistics mode
-        if hasattr(self, 'in_statistics_mode') and self.in_statistics_mode:
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-                pos = event.pos()
-                
-                # Check if we're clicking on a handle
-                for i, handle in enumerate(self.statisticsHandles):
-                    if handle.isVisible() and handle.geometry().contains(pos):
-                        self.statsDragMode = "resize"
-                        self.activeStatsHandle = i
-                        self.statsOrigin = pos
-                        return True
-                        
-                # Check if we're on the selection widget
-                if self.statisticsSelectionWidget.isVisible() and self.statisticsSelectionWidget.geometry().contains(pos):
-                    self.statsDragMode = "move"
-                    self.statsOrigin = pos
-                    self.moveStatsOffset = pos - self.statisticsSelectionWidget.pos()
-                    return True
-                        
-                # Check if we're clicking on the statistics label or close button
-                if (hasattr(self, 'statisticsLabel') and self.statisticsLabel.isVisible() and 
-                    self.statisticsLabel.geometry().contains(pos)):
-                    return True
-                    
-                if (hasattr(self, 'closeStatsButton') and self.closeStatsButton.isVisible() and 
-                    self.closeStatsButton.geometry().contains(pos)):
-                    return True
-                        
-                # Otherwise start creating a new selection
-                self.statsDragMode = "create"
-                self.statsOrigin = pos
-                self.statisticsSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-                self.statisticsSelectionWidget.show()
-                
-                # Hide handles when creating a new selection
-                for handle in self.statisticsHandles:
-                    handle.hide()
-                    
-                # Hide statistics until selection is complete
-                if hasattr(self, 'statisticsLabel'):
-                    self.statisticsLabel.hide()
-                if hasattr(self, 'closeStatsButton'):
-                    self.closeStatsButton.hide()
-                    
-                return True
-                        
-            # Mouse move event - update selection, position or size
-            elif event.type() == QtCore.QEvent.MouseMove:
-                if self.statsOrigin is None:
-                    return super().eventFilter(source, event)
-                        
-                pos = event.pos()
-                        
-                if self.statsDragMode == "create":
-                    # Creating a new selection
-                    self.statisticsSelectionWidget.setGeometry(QtCore.QRect(self.statsOrigin, pos).normalized())
-                        
-                elif self.statsDragMode == "move":
-                    # Moving the selection
-                    newPos = pos - self.moveStatsOffset
-                    self.statisticsSelectionWidget.move(newPos)
-                        
-                elif self.statsDragMode == "resize" and self.activeStatsHandle is not None:
-                    # Resizing using a handle
-                    rect = self.statisticsSelectionWidget.geometry()
-                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-                        
-                    dx = pos.x() - self.statsOrigin.x()
-                    dy = pos.y() - self.statsOrigin.y()
-                    self.statsOrigin = pos
-                        
-                    # Create new geometry based on which handle is being dragged
-                    newRect = QtCore.QRect(rect)
-                        
-                    if self.activeStatsHandle == 0:  # Top-left
-                        newRect.setLeft(x + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 1:  # Top-center
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 2:  # Top-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 3:  # Middle-right
-                        newRect.setRight(x + w + dx)
-                    elif self.activeStatsHandle == 4:  # Bottom-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 5:  # Bottom-center
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 6:  # Bottom-left
-                        newRect.setLeft(x + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 7:  # Middle-left
-                        newRect.setLeft(x + dx)
-                        
-                    # Ensure we have a valid rect
-                    normalizedRect = newRect.normalized()
-                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                        self.statisticsSelectionWidget.setGeometry(normalizedRect)
-                    
-                # Update handle positions
-                self.updateStatisticsHandlePositions()
-                        
-                # Show handles
-                if self.statisticsSelectionWidget.width() > 10 and self.statisticsSelectionWidget.height() > 10:
-                    for handle in self.statisticsHandles:
-                        handle.show()
-                
-                # Synchronize selection to all views
-                self.syncStatisticsSelectionToAllViews()
-                
-                # Update statistics
-                self.update_statistics_display()
-                        
-                return True
-                        
-            # Mouse release event
-            elif event.type() == QtCore.QEvent.MouseButtonRelease:
-                if self.statsDragMode is not None:
-                    # Update handle positions one final time
-                    self.updateStatisticsHandlePositions()
-                        
-                    # Reset drag state
-                    self.statsDragMode = None
-                    self.activeStatsHandle = None
-                        
-                    # Synchronize final position to all views
-                    self.syncStatisticsSelectionToAllViews()
-                    
-                    # Update statistics one final time
-                    self.update_statistics_display()
-                        
-                    return True
-        
-        return super().eventFilter(source, event)
 
 def main():
     """Run MultiViewMainWindow as main app.
