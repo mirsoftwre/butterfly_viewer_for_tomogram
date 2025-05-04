@@ -3439,555 +3439,581 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             y + h - buttonSize
         )
 
+    def handle_crop_events(self, source, event):
+        """Handle events for normal 2D crop mode."""
+        if not hasattr(self, 'cropSelectionWidget') or self.cropSelectionWidget is None:
+            return False
+            
+        # Check if event is from one of our handles (direct handle click)
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+            for i, handle in enumerate(self.handles):
+                if handle.isVisible() and source == handle:
+                    self.cropDragMode = "resize"
+                    self.activeHandle = i
+                    self.cropOrigin = event.globalPos()
+                    return True
+            
+        # Mouse press on the viewport
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirmCropButton and source != self.cancelCropButton:
+            pos = event.pos()
+            
+            # Check if we're clicking on a handle
+            for i, handle in enumerate(self.handles):
+                if handle.isVisible() and handle.geometry().contains(pos):
+                    self.cropDragMode = "resize"
+                    self.activeHandle = i
+                    self.cropOrigin = pos
+                    return True
+                    
+            # Check if we're on the selection widget
+            if self.cropSelectionWidget.isVisible() and self.cropSelectionWidget.geometry().contains(pos):
+                self.cropDragMode = "move"
+                self.cropOrigin = pos
+                self.moveOffset = pos - self.cropSelectionWidget.pos()
+                return True
+                
+            # Otherwise start creating a new selection
+            self.cropDragMode = "create"
+            self.cropOrigin = pos
+            self.cropSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+            self.cropSelectionWidget.show()
+            
+            # Hide handles when creating a new selection
+            for handle in self.handles:
+                handle.hide()
+                
+            self.confirmCropButton.hide()
+            self.cancelCropButton.hide()
+            return True
+            
+        # Mouse move event - update selection, position or size
+        elif event.type() == QtCore.QEvent.MouseMove:
+            if self.cropOrigin is None:
+                return False
+                
+            pos = event.pos()
+                
+            # If the event is from a handle, use global position
+            if any(source == handle for handle in self.handles):
+                pos = event.globalPos()
+                
+            if self.cropDragMode == "create":
+                # Creating a new selection
+                self.cropSelectionWidget.setGeometry(QtCore.QRect(self.cropOrigin, pos).normalized())
+                
+            elif self.cropDragMode == "move":
+                # Moving the selection
+                newPos = pos - self.moveOffset
+                self.cropSelectionWidget.move(newPos)
+                
+            elif self.cropDragMode == "resize" and self.activeHandle is not None:
+                # Resizing using a handle
+                rect = self.cropSelectionWidget.geometry()
+                x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                
+                # If event from handle, calculate delta from global positions
+                if any(source == handle for handle in self.handles):
+                    dx = pos.x() - self.cropOrigin.x()
+                    dy = pos.y() - self.cropOrigin.y()
+                    self.cropOrigin = pos
+                else:
+                    dx = pos.x() - self.cropOrigin.x()
+                    dy = pos.y() - self.cropOrigin.y()
+                    self.cropOrigin = pos
+                
+                # Create new geometry based on which handle is being dragged
+                newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                
+                if self.activeHandle == 0:  # Top-left
+                    newRect.setLeft(x + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandle == 1:  # Top-center
+                    newRect.setTop(y + dy)
+                elif self.activeHandle == 2:  # Top-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandle == 3:  # Middle-right
+                    newRect.setRight(x + w + dx)
+                elif self.activeHandle == 4:  # Bottom-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle == 5:  # Bottom-center
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle == 6:  # Bottom-left
+                    newRect.setLeft(x + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle == 7:  # Middle-left
+                    newRect.setLeft(x + dx)
+                
+                # Ensure we have a valid rect (positive width and height)
+                normalizedRect = newRect.normalized()
+                if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                    self.cropSelectionWidget.setGeometry(normalizedRect)
+            
+            # Update the positions of all handles
+            self.updateHandlePositions()
+                
+            # Show confirm/cancel buttons when a selection exists
+            if self.cropSelectionWidget.width() > 10 and self.cropSelectionWidget.height() > 10:
+                self.confirmCropButton.show()
+                self.cancelCropButton.show()
+            
+            return True
+            
+        # Mouse release event - finalize the current operation
+        elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton:
+            # If we created a selection, make sure it's valid
+            if self.cropDragMode == "create":
+                if self.cropSelectionWidget.width() < 10 or self.cropSelectionWidget.height() < 10:
+                    # Too small, hide it
+                    self.cropSelectionWidget.hide()
+                    self.confirmCropButton.hide()
+                    self.cancelCropButton.hide()
+                else:
+                    # Good selection, show handles
+                    self.updateHandlePositions()
+                    for handle in self.handles:
+                        handle.show()
+                
+            # Reset drag state
+            self.cropDragMode = None
+            self.activeHandle = None
+            
+            return True
+        
+        return False
+
+    def handle_3d_crop_events(self, source, event):
+        """Handle events for 3D crop mode."""
+        # Check if event is from one of our 3D handles (direct handle click)
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+            for i, handle in enumerate(self.handles3D):
+                if handle.isVisible() and source == handle:
+                    self.crop3DDragMode = "resize"
+                    self.activeHandle3D = i
+                    self.crop3DOrigin = event.globalPos()
+                    return True
+            
+        # Mouse press on the viewport
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirm3DCropButton and source != self.cancel3DCropButton:
+            pos = event.pos()
+            
+            # Check if we're clicking on a handle
+            for i, handle in enumerate(self.handles3D):
+                if handle.isVisible() and handle.geometry().contains(pos):
+                    self.crop3DDragMode = "resize"
+                    self.activeHandle3D = i
+                    self.crop3DOrigin = pos
+                    return True
+                    
+            # Check if we're on the selection widget
+            if self.crop3DSelectionWidget.isVisible() and self.crop3DSelectionWidget.geometry().contains(pos):
+                self.crop3DDragMode = "move"
+                self.crop3DOrigin = pos
+                self.move3DOffset = pos - self.crop3DSelectionWidget.pos()
+                return True
+                    
+            # Otherwise start creating a new selection
+            self.crop3DDragMode = "create"
+            self.crop3DOrigin = pos
+            self.crop3DSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+            self.crop3DSelectionWidget.show()
+            
+            # Hide handles when creating a new selection
+            for handle in self.handles3D:
+                handle.hide()
+                
+            self.confirm3DCropButton.hide()
+            self.cancel3DCropButton.hide()
+            return True
+            
+        # Mouse move event - update selection, position or size
+        elif event.type() == QtCore.QEvent.MouseMove:
+            if self.crop3DOrigin is None:
+                return False
+                
+            pos = event.pos()
+                
+            # If the event is from a handle, use global position
+            if any(source == handle for handle in self.handles3D):
+                pos = event.globalPos()
+                
+            if self.crop3DDragMode == "create":
+                # Creating a new selection
+                self.crop3DSelectionWidget.setGeometry(QtCore.QRect(self.crop3DOrigin, pos).normalized())
+                
+            elif self.crop3DDragMode == "move":
+                # Moving the selection
+                newPos = pos - self.move3DOffset
+                self.crop3DSelectionWidget.move(newPos)
+                
+            elif self.crop3DDragMode == "resize" and self.activeHandle3D is not None:
+                # Resizing using a handle
+                rect = self.crop3DSelectionWidget.geometry()
+                x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                
+                # If event from handle, calculate delta from global positions
+                if any(source == handle for handle in self.handles3D):
+                    dx = pos.x() - self.crop3DOrigin.x()
+                    dy = pos.y() - self.crop3DOrigin.y()
+                    self.crop3DOrigin = pos
+                else:
+                    dx = pos.x() - self.crop3DOrigin.x()
+                    dy = pos.y() - self.crop3DOrigin.y()
+                    self.crop3DOrigin = pos
+                
+                # Create new geometry based on which handle is being dragged
+                newRect = QtCore.QRect(rect)  # Make a copy of current rect
+                
+                if self.activeHandle3D == 0:  # Top-left
+                    newRect.setLeft(x + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandle3D == 1:  # Top-center
+                    newRect.setTop(y + dy)
+                elif self.activeHandle3D == 2:  # Top-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandle3D == 3:  # Middle-right
+                    newRect.setRight(x + w + dx)
+                elif self.activeHandle3D == 4:  # Bottom-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle3D == 5:  # Bottom-center
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle3D == 6:  # Bottom-left
+                    newRect.setLeft(x + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandle3D == 7:  # Middle-left
+                    newRect.setLeft(x + dx)
+                
+                # Ensure we have a valid rect (positive width and height)
+                normalizedRect = newRect.normalized()
+                if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                    self.crop3DSelectionWidget.setGeometry(normalizedRect)
+            
+            # Update the positions of all handles
+            self.updateHandle3DPositions()
+                
+            # Show confirm/cancel buttons when a selection exists
+            if self.crop3DSelectionWidget.width() > 10 and self.crop3DSelectionWidget.height() > 10:
+                self.confirm3DCropButton.show()
+                self.cancel3DCropButton.show()
+                
+                # Show handles
+                for handle in self.handles3D:
+                    handle.show()
+            
+            return True
+            
+        # Mouse release event - end of drag/resize/create
+        elif event.type() == QtCore.QEvent.MouseButtonRelease:
+            if self.crop3DDragMode is not None:
+                # Update handle positions one final time
+                self.updateHandle3DPositions()
+                
+                # Reset drag state
+                self.crop3DDragMode = None
+                self.activeHandle3D = None
+                
+                # Track current slice as end slice
+                if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
+                    self.end_z_slice = self.volumetric_handler.current_slice
+                
+                return True
+        
+        # Slice change event - track the Z range
+        elif event.type() == QtCore.QEvent.KeyPress:
+            if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
+                # Update start/end slice based on current slice
+                current_slice = self.volumetric_handler.current_slice
+                if hasattr(self, 'start_z_slice') and hasattr(self, 'end_z_slice'):
+                    if current_slice < self.start_z_slice:
+                        self.start_z_slice = current_slice
+                    elif current_slice > self.end_z_slice:
+                        self.end_z_slice = current_slice
+        
+        return False
+
+    def handle_crop_sync_events(self, source, event):
+        """Handle events for synchronized crop mode."""
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+            pos = event.pos()
+            
+            # Check if we're clicking on a handle
+            for i, handle in enumerate(self.handlesCropSync):
+                if handle.isVisible() and handle.geometry().contains(pos):
+                    self.cropSyncDragMode = "resize"
+                    self.activeHandleCropSync = i
+                    self.cropSyncOrigin = pos
+                    return True
+                    
+            # Check if we're on the selection widget
+            if self.cropSyncSelectionWidget.isVisible() and self.cropSyncSelectionWidget.geometry().contains(pos):
+                self.cropSyncDragMode = "move"
+                self.cropSyncOrigin = pos
+                self.moveCropSyncOffset = pos - self.cropSyncSelectionWidget.pos()
+                return True
+                    
+            # Otherwise start creating a new selection
+            self.cropSyncDragMode = "create"
+            self.cropSyncOrigin = pos
+            self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+            self.cropSyncSelectionWidget.show()
+            
+            # Hide handles when creating a new selection
+            for handle in self.handlesCropSync:
+                handle.hide()
+                
+            self.confirmCropSyncButton.hide()
+            self.cancelCropSyncButton.hide()
+            return True
+                    
+        # Mouse move event - update selection, position or size
+        elif event.type() == QtCore.QEvent.MouseMove:
+            if self.cropSyncOrigin is None:
+                return False
+                    
+            pos = event.pos()
+                    
+            if self.cropSyncDragMode == "create":
+                # Creating a new selection
+                self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(self.cropSyncOrigin, pos).normalized())
+                    
+            elif self.cropSyncDragMode == "move":
+                # Moving the selection
+                newPos = pos - self.moveCropSyncOffset
+                self.cropSyncSelectionWidget.move(newPos)
+                    
+            elif self.cropSyncDragMode == "resize" and self.activeHandleCropSync is not None:
+                # Resizing using a handle
+                rect = self.cropSyncSelectionWidget.geometry()
+                x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                    
+                dx = pos.x() - self.cropSyncOrigin.x()
+                dy = pos.y() - self.cropSyncOrigin.y()
+                self.cropSyncOrigin = pos
+                    
+                # Create new geometry based on which handle is being dragged
+                newRect = QtCore.QRect(rect)
+                    
+                if self.activeHandleCropSync == 0:  # Top-left
+                    newRect.setLeft(x + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandleCropSync == 1:  # Top-center
+                    newRect.setTop(y + dy)
+                elif self.activeHandleCropSync == 2:  # Top-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeHandleCropSync == 3:  # Middle-right
+                    newRect.setRight(x + w + dx)
+                elif self.activeHandleCropSync == 4:  # Bottom-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandleCropSync == 5:  # Bottom-center
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandleCropSync == 6:  # Bottom-left
+                    newRect.setLeft(x + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeHandleCropSync == 7:  # Middle-left
+                    newRect.setLeft(x + dx)
+                    
+                # Ensure we have a valid rect
+                normalizedRect = newRect.normalized()
+                if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                    self.cropSyncSelectionWidget.setGeometry(normalizedRect)
+                
+            # Update handle positions
+            self.updateHandleCropSyncPositions()
+                    
+            # Show confirm/cancel buttons when selection exists
+            if self.cropSyncSelectionWidget.width() > 10 and self.cropSyncSelectionWidget.height() > 10:
+                self.confirmCropSyncButton.show()
+                self.cancelCropSyncButton.show()
+                    
+                # Show handles
+                for handle in self.handlesCropSync:
+                    handle.show()
+            
+            # Synchronize selection to all views
+            self.syncCropSelectionToAllViews()
+                    
+            return True
+                    
+        # Mouse release event
+        elif event.type() == QtCore.QEvent.MouseButtonRelease:
+            if self.cropSyncDragMode is not None:
+                # Update handle positions one final time
+                self.updateHandleCropSyncPositions()
+                    
+                # Reset drag state
+                self.cropSyncDragMode = None
+                self.activeHandleCropSync = None
+                    
+                # Synchronize final position to all views
+                self.syncCropSelectionToAllViews()
+                    
+                return True
+        
+        return False
+
+    def handle_statistics_events(self, source, event):
+        """Handle events for statistics mode."""
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+            pos = event.pos()
+            
+            # Check if we're clicking on a handle
+            for i, handle in enumerate(self.statisticsHandles):
+                if handle.isVisible() and handle.geometry().contains(pos):
+                    self.statsDragMode = "resize"
+                    self.activeStatsHandle = i
+                    self.statsOrigin = pos
+                    return True
+                    
+            # Check if we're on the selection widget
+            if self.statisticsSelectionWidget.isVisible() and self.statisticsSelectionWidget.geometry().contains(pos):
+                self.statsDragMode = "move"
+                self.statsOrigin = pos
+                self.moveStatsOffset = pos - self.statisticsSelectionWidget.pos()
+                return True
+                    
+            # Check if we're clicking on the statistics label or close button
+            if (hasattr(self, 'statisticsLabel') and self.statisticsLabel.isVisible() and 
+                self.statisticsLabel.geometry().contains(pos)):
+                return True
+                
+            if (hasattr(self, 'closeStatsButton') and self.closeStatsButton.isVisible() and 
+                self.closeStatsButton.geometry().contains(pos)):
+                return True
+                    
+            # Otherwise start creating a new selection
+            self.statsDragMode = "create"
+            self.statsOrigin = pos
+            self.statisticsSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
+            self.statisticsSelectionWidget.show()
+            
+            # Hide handles when creating a new selection
+            for handle in self.statisticsHandles:
+                handle.hide()
+                
+            # Hide statistics until selection is complete
+            if hasattr(self, 'statisticsLabel'):
+                self.statisticsLabel.hide()
+            if hasattr(self, 'closeStatsButton'):
+                self.closeStatsButton.hide()
+                
+            return True
+                    
+        # Mouse move event - update selection, position or size
+        elif event.type() == QtCore.QEvent.MouseMove:
+            if self.statsOrigin is None:
+                return False
+                    
+            pos = event.pos()
+                    
+            if self.statsDragMode == "create":
+                # Creating a new selection
+                self.statisticsSelectionWidget.setGeometry(QtCore.QRect(self.statsOrigin, pos).normalized())
+                    
+            elif self.statsDragMode == "move":
+                # Moving the selection
+                newPos = pos - self.moveStatsOffset
+                self.statisticsSelectionWidget.move(newPos)
+                    
+            elif self.statsDragMode == "resize" and self.activeStatsHandle is not None:
+                # Resizing using a handle
+                rect = self.statisticsSelectionWidget.geometry()
+                x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+                    
+                dx = pos.x() - self.statsOrigin.x()
+                dy = pos.y() - self.statsOrigin.y()
+                self.statsOrigin = pos
+                    
+                # Create new geometry based on which handle is being dragged
+                newRect = QtCore.QRect(rect)
+                    
+                if self.activeStatsHandle == 0:  # Top-left
+                    newRect.setLeft(x + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeStatsHandle == 1:  # Top-center
+                    newRect.setTop(y + dy)
+                elif self.activeStatsHandle == 2:  # Top-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setTop(y + dy)
+                elif self.activeStatsHandle == 3:  # Middle-right
+                    newRect.setRight(x + w + dx)
+                elif self.activeStatsHandle == 4:  # Bottom-right
+                    newRect.setRight(x + w + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeStatsHandle == 5:  # Bottom-center
+                    newRect.setBottom(y + h + dy)
+                elif self.activeStatsHandle == 6:  # Bottom-left
+                    newRect.setLeft(x + dx)
+                    newRect.setBottom(y + h + dy)
+                elif self.activeStatsHandle == 7:  # Middle-left
+                    newRect.setLeft(x + dx)
+                    
+                # Ensure we have a valid rect
+                normalizedRect = newRect.normalized()
+                if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
+                    self.statisticsSelectionWidget.setGeometry(normalizedRect)
+                
+            # Update handle positions
+            self.updateStatisticsHandlePositions()
+                    
+            # Show handles
+            if self.statisticsSelectionWidget.width() > 10 and self.statisticsSelectionWidget.height() > 10:
+                for handle in self.statisticsHandles:
+                    handle.show()
+            
+            # Synchronize selection to all views
+            self.syncStatisticsSelectionToAllViews()
+            
+            # Update statistics
+            self.update_statistics_display()
+                    
+            return True
+                    
+        # Mouse release event
+        elif event.type() == QtCore.QEvent.MouseButtonRelease:
+            if self.statsDragMode is not None:
+                # Update handle positions one final time
+                self.updateStatisticsHandlePositions()
+                    
+                # Reset drag state
+                self.statsDragMode = None
+                self.activeStatsHandle = None
+                    
+                # Synchronize final position to all views
+                self.syncStatisticsSelectionToAllViews()
+                
+                # Update statistics one final time
+                self.update_statistics_display()
+                    
+                return True
+        
+        return False
+
     def eventFilter(self, source, event):
         """Event filter to handle crop selection, resizing and movement."""
         # Handle normal 2D crop
         if hasattr(self, 'inCropMode') and self.inCropMode:
-            if not hasattr(self, 'cropSelectionWidget') or self.cropSelectionWidget is None:
-                return super().eventFilter(source, event)
-                
-            # Check if event is from one of our handles (direct handle click)
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-                for i, handle in enumerate(self.handles):
-                    if handle.isVisible() and source == handle:
-                        self.cropDragMode = "resize"
-                        self.activeHandle = i
-                        self.cropOrigin = event.globalPos()
-                        return True
-                
-            # Mouse press on the viewport
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirmCropButton and source != self.cancelCropButton:
-                pos = event.pos()
-                
-                # Check if we're clicking on a handle
-                for i, handle in enumerate(self.handles):
-                    if handle.isVisible() and handle.geometry().contains(pos):
-                        self.cropDragMode = "resize"
-                        self.activeHandle = i
-                        self.cropOrigin = pos
-                        return True
-                        
-                # Check if we're on the selection widget
-                if self.cropSelectionWidget.isVisible() and self.cropSelectionWidget.geometry().contains(pos):
-                    self.cropDragMode = "move"
-                    self.cropOrigin = pos
-                    self.moveOffset = pos - self.cropSelectionWidget.pos()
-                    return True
-                    
-                # Otherwise start creating a new selection
-                self.cropDragMode = "create"
-                self.cropOrigin = pos
-                self.cropSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-                self.cropSelectionWidget.show()
-                
-                # Hide handles when creating a new selection
-                for handle in self.handles:
-                    handle.hide()
-                    
-                self.confirmCropButton.hide()
-                self.cancelCropButton.hide()
+            if self.handle_crop_events(source, event):
                 return True
                 
-            # Mouse move event - update selection, position or size
-            elif event.type() == QtCore.QEvent.MouseMove:
-                if self.cropOrigin is None:
-                    return super().eventFilter(source, event)
-                    
-                pos = event.pos()
-                
-                # If the event is from a handle, use global position
-                if any(source == handle for handle in self.handles):
-                    pos = event.globalPos()
-                    
-                if self.cropDragMode == "create":
-                    # Creating a new selection
-                    self.cropSelectionWidget.setGeometry(QtCore.QRect(self.cropOrigin, pos).normalized())
-                    
-                elif self.cropDragMode == "move":
-                    # Moving the selection
-                    newPos = pos - self.moveOffset
-                    self.cropSelectionWidget.move(newPos)
-                    
-                elif self.cropDragMode == "resize" and self.activeHandle is not None:
-                    # Resizing using a handle
-                    rect = self.cropSelectionWidget.geometry()
-                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-                    
-                    # If event from handle, calculate delta from global positions
-                    if any(source == handle for handle in self.handles):
-                        dx = pos.x() - self.cropOrigin.x()
-                        dy = pos.y() - self.cropOrigin.y()
-                        self.cropOrigin = pos
-                    else:
-                        dx = pos.x() - self.cropOrigin.x()
-                        dy = pos.y() - self.cropOrigin.y()
-                        self.cropOrigin = pos
-                    
-                    # Create new geometry based on which handle is being dragged
-                    newRect = QtCore.QRect(rect)  # Make a copy of current rect
-                    
-                    if self.activeHandle == 0:  # Top-left
-                        newRect.setLeft(x + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle == 1:  # Top-center
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle == 2:  # Top-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle == 3:  # Middle-right
-                        newRect.setRight(x + w + dx)
-                    elif self.activeHandle == 4:  # Bottom-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle == 5:  # Bottom-center
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle == 6:  # Bottom-left
-                        newRect.setLeft(x + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle == 7:  # Middle-left
-                        newRect.setLeft(x + dx)
-                    
-                    # Ensure we have a valid rect (positive width and height)
-                    normalizedRect = newRect.normalized()
-                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                        self.cropSelectionWidget.setGeometry(normalizedRect)
-                
-                # Update the positions of all handles
-                self.updateHandlePositions()
-                    
-                # Show confirm/cancel buttons when a selection exists
-                if self.cropSelectionWidget.width() > 10 and self.cropSelectionWidget.height() > 10:
-                    self.confirmCropButton.show()
-                    self.cancelCropButton.show()
-                
-                return True
-                
-            # Mouse release event - finalize the current operation
-            elif event.type() == QtCore.QEvent.MouseButtonRelease and event.button() == QtCore.Qt.LeftButton:
-                # If we created a selection, make sure it's valid
-                if self.cropDragMode == "create":
-                    if self.cropSelectionWidget.width() < 10 or self.cropSelectionWidget.height() < 10:
-                        # Too small, hide it
-                        self.cropSelectionWidget.hide()
-                        self.confirmCropButton.hide()
-                        self.cancelCropButton.hide()
-                    else:
-                        # Good selection, show handles
-                        self.updateHandlePositions()
-                        for handle in self.handles:
-                            handle.show()
-                    
-                # Reset drag state
-                self.cropDragMode = None
-                self.activeHandle = None
-                
-                return True
-            
-            return super().eventFilter(source, event)
-            
         # Handle 3D crop events
         elif hasattr(self, 'in3DCropMode') and self.in3DCropMode:
-            # Check if event is from one of our 3D handles (direct handle click)
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-                for i, handle in enumerate(self.handles3D):
-                    if handle.isVisible() and source == handle:
-                        self.crop3DDragMode = "resize"
-                        self.activeHandle3D = i
-                        self.crop3DOrigin = event.globalPos()
-                        return True
-                
-            # Mouse press on the viewport
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton and source != self.confirm3DCropButton and source != self.cancel3DCropButton:
-                pos = event.pos()
-                
-                # Check if we're clicking on a handle
-                for i, handle in enumerate(self.handles3D):
-                    if handle.isVisible() and handle.geometry().contains(pos):
-                        self.crop3DDragMode = "resize"
-                        self.activeHandle3D = i
-                        self.crop3DOrigin = pos
-                        return True
-                        
-                # Check if we're on the selection widget
-                if self.crop3DSelectionWidget.isVisible() and self.crop3DSelectionWidget.geometry().contains(pos):
-                    self.crop3DDragMode = "move"
-                    self.crop3DOrigin = pos
-                    self.move3DOffset = pos - self.crop3DSelectionWidget.pos()
-                    return True
-                    
-                # Otherwise start creating a new selection
-                self.crop3DDragMode = "create"
-                self.crop3DOrigin = pos
-                self.crop3DSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-                self.crop3DSelectionWidget.show()
-                
-                # Hide handles when creating a new selection
-                for handle in self.handles3D:
-                    handle.hide()
-                    
-                self.confirm3DCropButton.hide()
-                self.cancel3DCropButton.hide()
+            if self.handle_3d_crop_events(source, event):
                 return True
                 
-            # Mouse move event - update selection, position or size
-            elif event.type() == QtCore.QEvent.MouseMove:
-                if self.crop3DOrigin is None:
-                    return super().eventFilter(source, event)
-                    
-                pos = event.pos()
-                
-                # If the event is from a handle, use global position
-                if any(source == handle for handle in self.handles3D):
-                    pos = event.globalPos()
-                    
-                if self.crop3DDragMode == "create":
-                    # Creating a new selection
-                    self.crop3DSelectionWidget.setGeometry(QtCore.QRect(self.crop3DOrigin, pos).normalized())
-                    
-                elif self.crop3DDragMode == "move":
-                    # Moving the selection
-                    newPos = pos - self.move3DOffset
-                    self.crop3DSelectionWidget.move(newPos)
-                    
-                elif self.crop3DDragMode == "resize" and self.activeHandle3D is not None:
-                    # Resizing using a handle
-                    rect = self.crop3DSelectionWidget.geometry()
-                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-                    
-                    # If event from handle, calculate delta from global positions
-                    if any(source == handle for handle in self.handles3D):
-                        dx = pos.x() - self.crop3DOrigin.x()
-                        dy = pos.y() - self.crop3DOrigin.y()
-                        self.crop3DOrigin = pos
-                    else:
-                        dx = pos.x() - self.crop3DOrigin.x()
-                        dy = pos.y() - self.crop3DOrigin.y()
-                        self.crop3DOrigin = pos
-                    
-                    # Create new geometry based on which handle is being dragged
-                    newRect = QtCore.QRect(rect)  # Make a copy of current rect
-                    
-                    if self.activeHandle3D == 0:  # Top-left
-                        newRect.setLeft(x + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle3D == 1:  # Top-center
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle3D == 2:  # Top-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandle3D == 3:  # Middle-right
-                        newRect.setRight(x + w + dx)
-                    elif self.activeHandle3D == 4:  # Bottom-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle3D == 5:  # Bottom-center
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle3D == 6:  # Bottom-left
-                        newRect.setLeft(x + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandle3D == 7:  # Middle-left
-                        newRect.setLeft(x + dx)
-                    
-                    # Ensure we have a valid rect (positive width and height)
-                    normalizedRect = newRect.normalized()
-                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                        self.crop3DSelectionWidget.setGeometry(normalizedRect)
-                
-                # Update the positions of all handles
-                self.updateHandle3DPositions()
-                    
-                # Show confirm/cancel buttons when a selection exists
-                if self.crop3DSelectionWidget.width() > 10 and self.crop3DSelectionWidget.height() > 10:
-                    self.confirm3DCropButton.show()
-                    self.cancel3DCropButton.show()
-                    
-                    # Show handles
-                    for handle in self.handles3D:
-                        handle.show()
-                
-                return True
-                
-            # Mouse release event - end of drag/resize/create
-            elif event.type() == QtCore.QEvent.MouseButtonRelease:
-                if self.crop3DDragMode is not None:
-                    # Update handle positions one final time
-                    self.updateHandle3DPositions()
-                    
-                    # Reset drag state
-                    self.crop3DDragMode = None
-                    self.activeHandle3D = None
-                    
-                    # Track current slice as end slice
-                    if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
-                        self.end_z_slice = self.volumetric_handler.current_slice
-                    
-                    return True
-            
-            # Slice change event - track the Z range
-            elif event.type() == QtCore.QEvent.KeyPress:
-                if self.activeMdiChild and hasattr(self.activeMdiChild, 'is_volumetric') and self.activeMdiChild.is_volumetric:
-                    # Update start/end slice based on current slice
-                    current_slice = self.volumetric_handler.current_slice
-                    if hasattr(self, 'start_z_slice') and hasattr(self, 'end_z_slice'):
-                        if current_slice < self.start_z_slice:
-                            self.start_z_slice = current_slice
-                        elif current_slice > self.end_z_slice:
-                            self.end_z_slice = current_slice
-            
         # Handle sync crop events
         elif hasattr(self, 'inCropSyncMode') and self.inCropSyncMode:
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-                pos = event.pos()
-                
-                # Check if we're clicking on a handle
-                for i, handle in enumerate(self.handlesCropSync):
-                    if handle.isVisible() and handle.geometry().contains(pos):
-                        self.cropSyncDragMode = "resize"
-                        self.activeHandleCropSync = i
-                        self.cropSyncOrigin = pos
-                        return True
-                        
-                # Check if we're on the selection widget
-                if self.cropSyncSelectionWidget.isVisible() and self.cropSyncSelectionWidget.geometry().contains(pos):
-                    self.cropSyncDragMode = "move"
-                    self.cropSyncOrigin = pos
-                    self.moveCropSyncOffset = pos - self.cropSyncSelectionWidget.pos()
-                    return True
-                        
-                # Otherwise start creating a new selection
-                self.cropSyncDragMode = "create"
-                self.cropSyncOrigin = pos
-                self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-                self.cropSyncSelectionWidget.show()
-                
-                # Hide handles when creating a new selection
-                for handle in self.handlesCropSync:
-                    handle.hide()
-                    
-                self.confirmCropSyncButton.hide()
-                self.cancelCropSyncButton.hide()
+            if self.handle_crop_sync_events(source, event):
                 return True
-                        
-            # Mouse move event - update selection, position or size
-            elif event.type() == QtCore.QEvent.MouseMove:
-                if self.cropSyncOrigin is None:
-                    return super().eventFilter(source, event)
-                        
-                pos = event.pos()
-                        
-                if self.cropSyncDragMode == "create":
-                    # Creating a new selection
-                    self.cropSyncSelectionWidget.setGeometry(QtCore.QRect(self.cropSyncOrigin, pos).normalized())
-                        
-                elif self.cropSyncDragMode == "move":
-                    # Moving the selection
-                    newPos = pos - self.moveCropSyncOffset
-                    self.cropSyncSelectionWidget.move(newPos)
-                        
-                elif self.cropSyncDragMode == "resize" and self.activeHandleCropSync is not None:
-                    # Resizing using a handle
-                    rect = self.cropSyncSelectionWidget.geometry()
-                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-                        
-                    dx = pos.x() - self.cropSyncOrigin.x()
-                    dy = pos.y() - self.cropSyncOrigin.y()
-                    self.cropSyncOrigin = pos
-                        
-                    # Create new geometry based on which handle is being dragged
-                    newRect = QtCore.QRect(rect)
-                        
-                    if self.activeHandleCropSync == 0:  # Top-left
-                        newRect.setLeft(x + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandleCropSync == 1:  # Top-center
-                        newRect.setTop(y + dy)
-                    elif self.activeHandleCropSync == 2:  # Top-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeHandleCropSync == 3:  # Middle-right
-                        newRect.setRight(x + w + dx)
-                    elif self.activeHandleCropSync == 4:  # Bottom-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandleCropSync == 5:  # Bottom-center
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandleCropSync == 6:  # Bottom-left
-                        newRect.setLeft(x + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeHandleCropSync == 7:  # Middle-left
-                        newRect.setLeft(x + dx)
-                        
-                    # Ensure we have a valid rect
-                    normalizedRect = newRect.normalized()
-                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                        self.cropSyncSelectionWidget.setGeometry(normalizedRect)
-                    
-                # Update handle positions
-                self.updateHandleCropSyncPositions()
-                        
-                # Show confirm/cancel buttons when selection exists
-                if self.cropSyncSelectionWidget.width() > 10 and self.cropSyncSelectionWidget.height() > 10:
-                    self.confirmCropSyncButton.show()
-                    self.cancelCropSyncButton.show()
-                        
-                    # Show handles
-                    for handle in self.handlesCropSync:
-                        handle.show()
-                
-                # Synchronize selection to all views
-                self.syncCropSelectionToAllViews()
-                        
-                return True
-                        
-            # Mouse release event
-            elif event.type() == QtCore.QEvent.MouseButtonRelease:
-                if self.cropSyncDragMode is not None:
-                    # Update handle positions one final time
-                    self.updateHandleCropSyncPositions()
-                        
-                    # Reset drag state
-                    self.cropSyncDragMode = None
-                    self.activeHandleCropSync = None
-                        
-                    # Synchronize final position to all views
-                    self.syncCropSelectionToAllViews()
-                        
-                    return True
                 
         # Handle statistics mode
         elif hasattr(self, 'in_statistics_mode') and self.in_statistics_mode:
-            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
-                pos = event.pos()
-                
-                # Check if we're clicking on a handle
-                for i, handle in enumerate(self.statisticsHandles):
-                    if handle.isVisible() and handle.geometry().contains(pos):
-                        self.statsDragMode = "resize"
-                        self.activeStatsHandle = i
-                        self.statsOrigin = pos
-                        return True
-                        
-                # Check if we're on the selection widget
-                if self.statisticsSelectionWidget.isVisible() and self.statisticsSelectionWidget.geometry().contains(pos):
-                    self.statsDragMode = "move"
-                    self.statsOrigin = pos
-                    self.moveStatsOffset = pos - self.statisticsSelectionWidget.pos()
-                    return True
-                        
-                # Check if we're clicking on the statistics label or close button
-                if (hasattr(self, 'statisticsLabel') and self.statisticsLabel.isVisible() and 
-                    self.statisticsLabel.geometry().contains(pos)):
-                    return True
-                    
-                if (hasattr(self, 'closeStatsButton') and self.closeStatsButton.isVisible() and 
-                    self.closeStatsButton.geometry().contains(pos)):
-                    return True
-                        
-                # Otherwise start creating a new selection
-                self.statsDragMode = "create"
-                self.statsOrigin = pos
-                self.statisticsSelectionWidget.setGeometry(QtCore.QRect(pos, QtCore.QSize(1, 1)))
-                self.statisticsSelectionWidget.show()
-                
-                # Hide handles when creating a new selection
-                for handle in self.statisticsHandles:
-                    handle.hide()
-                    
-                # Hide statistics until selection is complete
-                if hasattr(self, 'statisticsLabel'):
-                    self.statisticsLabel.hide()
-                if hasattr(self, 'closeStatsButton'):
-                    self.closeStatsButton.hide()
-                    
+            if self.handle_statistics_events(source, event):
                 return True
-                        
-            # Mouse move event - update selection, position or size
-            elif event.type() == QtCore.QEvent.MouseMove:
-                if self.statsOrigin is None:
-                    return super().eventFilter(source, event)
-                        
-                pos = event.pos()
-                        
-                if self.statsDragMode == "create":
-                    # Creating a new selection
-                    self.statisticsSelectionWidget.setGeometry(QtCore.QRect(self.statsOrigin, pos).normalized())
-                        
-                elif self.statsDragMode == "move":
-                    # Moving the selection
-                    newPos = pos - self.moveStatsOffset
-                    self.statisticsSelectionWidget.move(newPos)
-                        
-                elif self.statsDragMode == "resize" and self.activeStatsHandle is not None:
-                    # Resizing using a handle
-                    rect = self.statisticsSelectionWidget.geometry()
-                    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
-                        
-                    dx = pos.x() - self.statsOrigin.x()
-                    dy = pos.y() - self.statsOrigin.y()
-                    self.statsOrigin = pos
-                        
-                    # Create new geometry based on which handle is being dragged
-                    newRect = QtCore.QRect(rect)
-                        
-                    if self.activeStatsHandle == 0:  # Top-left
-                        newRect.setLeft(x + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 1:  # Top-center
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 2:  # Top-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setTop(y + dy)
-                    elif self.activeStatsHandle == 3:  # Middle-right
-                        newRect.setRight(x + w + dx)
-                    elif self.activeStatsHandle == 4:  # Bottom-right
-                        newRect.setRight(x + w + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 5:  # Bottom-center
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 6:  # Bottom-left
-                        newRect.setLeft(x + dx)
-                        newRect.setBottom(y + h + dy)
-                    elif self.activeStatsHandle == 7:  # Middle-left
-                        newRect.setLeft(x + dx)
-                        
-                    # Ensure we have a valid rect
-                    normalizedRect = newRect.normalized()
-                    if normalizedRect.width() >= 10 and normalizedRect.height() >= 10:
-                        self.statisticsSelectionWidget.setGeometry(normalizedRect)
-                    
-                # Update handle positions
-                self.updateStatisticsHandlePositions()
-                        
-                # Show handles
-                if self.statisticsSelectionWidget.width() > 10 and self.statisticsSelectionWidget.height() > 10:
-                    for handle in self.statisticsHandles:
-                        handle.show()
-                
-                # Synchronize selection to all views
-                self.syncStatisticsSelectionToAllViews()
-                
-                # Update statistics
-                self.update_statistics_display()
-                        
-                return True
-                        
-            # Mouse release event
-            elif event.type() == QtCore.QEvent.MouseButtonRelease:
-                if self.statsDragMode is not None:
-                    # Update handle positions one final time
-                    self.updateStatisticsHandlePositions()
-                        
-                    # Reset drag state
-                    self.statsDragMode = None
-                    self.activeStatsHandle = None
-                        
-                    # Synchronize final position to all views
-                    self.syncStatisticsSelectionToAllViews()
-                    
-                    # Update statistics one final time
-                    self.update_statistics_display()
-                        
-                    return True
         
         return super().eventFilter(source, event)
 
