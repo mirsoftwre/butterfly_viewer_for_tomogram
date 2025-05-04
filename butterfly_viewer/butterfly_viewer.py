@@ -530,8 +530,9 @@ class SplitViewMdiChild(SplitView):
         # Get pixmap for selected slice
         pixmap = self.volumetric_handler.get_slice_pixmap(slice_index)
         if pixmap:
-            # Update pixmap in view
-            self.pixmap_main_topleft = pixmap
+            # Update pixmap in view directly without using property
+            self._pixmapItem_main_topleft.setPixmap(pixmap)
+            self._pixmap_base_original = pixmap
             
             # Update current slice
             self.current_slice = slice_index
@@ -723,6 +724,8 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         self._recentFileActions = []
         self._handlingScrollChangedSignal = False
+        self._handling_slice_sync = False  # Add flag for slice synchronization
+        self._handling_range_sync = False  # Add flag for range synchronization
         self._last_accessed_fullpath = None
 
         self._mdiArea = QMdiAreaWithCustomSignals()
@@ -872,7 +875,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self.stopsync_toggle_pushbutton = ViewerButton(style="green-yellow")
         self.stopsync_toggle_pushbutton.setIcon(":/icons/refresh.svg")
         self.stopsync_toggle_pushbutton.setCheckedIcon(":/icons/refresh-cancelled.svg")
-        self.stopsync_toggle_pushbutton.setToolTip("Unsynchronize zoom and pan (currently synced)")
+        self.stopsync_toggle_pushbutton.setToolTip("Unsynchronize zoom, pan, and range (currently synced)")
         self.stopsync_toggle_pushbutton.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         self.stopsync_toggle_pushbutton.setMouseTracking(True)
         self.stopsync_toggle_pushbutton.setCheckable(True)
@@ -1277,22 +1280,22 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             self.show_interface_on()
 
     def set_stopsync_pushbutton(self, boolean):
-        """Set state of synchronous zoom/pan and appearance of corresponding interface button.
+        """Set state of synchronous zoom/pan/range and appearance of corresponding interface button.
 
         Args:
             boolean (bool): True to enable synchronized zoom/pan; False to disable.
         """ 
         self._synchZoomAct.setChecked(not boolean)
         self._synchPanAct.setChecked(not boolean)
-        
+        self._synchRangeAct.setChecked(not boolean)
         if self._synchZoomAct.isChecked():
             if self.activeMdiChild:
                 self.activeMdiChild.fitToWindow()
 
         if boolean:
-            self.stopsync_toggle_pushbutton.setToolTip("Synchronize zoom and pan (currently unsynced)")
+            self.stopsync_toggle_pushbutton.setToolTip("Synchronize zoom, pan, and range (currently unsynced)")
         else:
-            self.stopsync_toggle_pushbutton.setToolTip("Unsynchronize zoom and pan (currently synced)")
+            self.stopsync_toggle_pushbutton.setToolTip("Unsynchronize zoom, pan, and range (currently synced)")
 
     def toggle_fullscreen(self):
         """Toggle fullscreen state of app."""
@@ -1761,11 +1764,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
 
         child.sync_this_zoom = True
         child.sync_this_pan = True
+        child.sync_this_slice = True  # Enable slice synchronization by default
         
         self._mdiArea.addSubWindow(child, QtCore.Qt.FramelessWindowHint) # LVM: No frame, starts fitted
 
         child.scrollChanged.connect(self.panChanged)
         child.transformChanged.connect(self.zoomChanged)
+        child.slice_changed.connect(lambda slice_idx: self.synchSlice(child))  # Pass child directly
         
         child.positionChanged.connect(self.on_positionChanged)
         child.tracker.mouse_leaved.connect(self.on_mouse_leaved)
@@ -2264,6 +2269,12 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             checkable=True,
             statusTip="Synch panning of subwindows",
             triggered=self.toggleSynchPan)
+            
+        self._synchRangeAct = QtWidgets.QAction(
+            "Synch &Range", self,
+            checkable=True,
+            statusTip="Synch display range of volumetric images",
+            triggered=self.toggleSynchRange)
 
         #Scroll menu actions
         self._scrollActions = [
@@ -2439,6 +2450,7 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         self._viewMenu.addSeparator()
         self._viewMenu.addAction(self._synchZoomAct)
         self._viewMenu.addAction(self._synchPanAct)
+        self._viewMenu.addAction(self._synchRangeAct)  # Add sync range action to menu
 
         self._scrollMenu = self.menuBar().addMenu("&Scroll")
         [self._scrollMenu.addAction(action) for action in self._scrollActions]
@@ -2698,39 +2710,47 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         """
         if not fromViewer or not fromViewer.is_volumetric:
             return
-
-        windows = self._mdiArea.subWindowList()
-        for window in windows:
-            toViewer = window.widget()
-            if (toViewer and isinstance(toViewer, SplitViewMdiChild) and 
-                toViewer != fromViewer and toViewer.sync_this_slice):
-                
-                if toViewer.is_volumetric:
-                    # If target has volumetric data and the slice exists, load it
-                    if fromViewer.current_slice < toViewer.total_slices:
-                        toViewer.load_slice(fromViewer.current_slice)
+            
+        # Prevent recursion
+        if self._handling_slice_sync:
+            return
+            
+        self._handling_slice_sync = True
+        try:
+            windows = self._mdiArea.subWindowList()
+            for window in windows:
+                toViewer = window.widget()
+                if (toViewer and isinstance(toViewer, SplitViewMdiChild) and 
+                    toViewer != fromViewer and toViewer.sync_this_slice):
+                    
+                    if toViewer.is_volumetric:
+                        # If target has volumetric data and the slice exists, load it
+                        if fromViewer.current_slice < toViewer.total_slices:
+                            toViewer.load_slice(fromViewer.current_slice)
+                        else:
+                            # If the target doesn't have this slice, load the last available slice
+                            toViewer.load_slice(toViewer.total_slices - 1)
                     else:
-                        # If the target doesn't have this slice, load the last available slice
-                        toViewer.load_slice(toViewer.total_slices - 1)
-                else:
-                    # If target is not volumetric but fromViewer is,
-                    # create a black pixmap of the same size as the current pixmap
-                    if hasattr(toViewer, '_pixmapItem_main_topleft') and toViewer._pixmapItem_main_topleft:
-                        current_pixmap = toViewer._pixmapItem_main_topleft.pixmap()
-                        if current_pixmap and not current_pixmap.isNull():
-                            width = current_pixmap.width()
-                            height = current_pixmap.height()
-                            
-                            # Create a black pixmap of the same size
-                            black_pixmap = QtGui.QPixmap(width, height)
-                            black_pixmap.fill(QtCore.Qt.black)
-                            
-                            # Remove existing pixmap item
-                            if hasattr(toViewer, '_pixmap_item_main_topleft') and toViewer._pixmap_item_main_topleft:
-                                toViewer._scene_main_topleft.removeItem(toViewer._pixmap_item_main_topleft)
-                            
-                            # Add black pixmap
-                            toViewer._pixmap_item_main_topleft = toViewer._scene_main_topleft.addPixmap(black_pixmap)
+                        # If target is not volumetric but fromViewer is,
+                        # create a black pixmap of the same size as the current pixmap
+                        if hasattr(toViewer, '_pixmapItem_main_topleft') and toViewer._pixmapItem_main_topleft:
+                            current_pixmap = toViewer._pixmapItem_main_topleft.pixmap()
+                            if current_pixmap and not current_pixmap.isNull():
+                                width = current_pixmap.width()
+                                height = current_pixmap.height()
+                                
+                                # Create a black pixmap of the same size
+                                black_pixmap = QtGui.QPixmap(width, height)
+                                black_pixmap.fill(QtCore.Qt.black)
+                                
+                                # Remove existing pixmap item
+                                if hasattr(toViewer, '_pixmap_item_main_topleft') and toViewer._pixmap_item_main_topleft:
+                                    toViewer._scene_main_topleft.removeItem(toViewer._pixmap_item_main_topleft)
+                                
+                                # Add black pixmap
+                                toViewer._pixmap_item_main_topleft = toViewer._scene_main_topleft.addPixmap(black_pixmap)
+        finally:
+            self._handling_slice_sync = False
 
     def synchDisplayRange(self, fromViewer, min_value, max_value):
         """Synchronize display range with all other image windows (except the one that caused the event).
@@ -3038,11 +3058,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         if sync_always_checked_on_at_startup:
             self._synchZoomAct.setChecked(True)
             self._synchPanAct.setChecked(True)
+            self._synchRangeAct.setChecked(True)  # Enable range sync by default
         else:
             self._synchZoomAct.setChecked(
                 toBool(settings.value(SETTING_SYNCHZOOM, False)))
             self._synchPanAct.setChecked(
                 toBool(settings.value(SETTING_SYNCHPAN, False)))
+            self._synchRangeAct.setChecked(True)  # Always enable range sync initially
 
     def updateRecentFileSettings(self, filename_main_topleft, delete=False):
         """Update recent file list setting.
@@ -4430,6 +4452,99 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             x + w + buttonMargin + buttonSize + buttonMargin,
             y + h - buttonSize
         )
+
+    @QtCore.pyqtSlot()
+    def sliceChanged(self):
+        """Synchronize slice changes across all volumetric images."""
+        mdiChild = self.sender()
+        while mdiChild is not None and type(mdiChild) != SplitViewMdiChild:
+            mdiChild = mdiChild.parent()
+        if mdiChild:
+            self.synchSlice(mdiChild)
+
+    @QtCore.pyqtSlot()
+    def toggleSynchRange(self):
+        """Toggle synchronized display range."""
+        if self._synchRangeAct.isChecked():
+            if self.activeMdiChild and self.activeMdiChild.is_volumetric:
+                curr_min, curr_max = self.activeMdiChild.volumetric_handler.data_range
+                self.synchDisplayRange(self.activeMdiChild, curr_min, curr_max)
+
+    def synchDisplayRange(self, fromViewer, min_value, max_value):
+        """Synchronize display range with all other image windows (except the one that caused the event).
+        
+        Args:
+            fromViewer (SplitViewMdiChild): The viewer/subwindow which triggered the display range change.
+            min_value (float): The minimum value of the display range.
+            max_value (float): The maximum value of the display range.
+        """
+        if not fromViewer or not fromViewer.is_volumetric:
+            return
+            
+        # Check if range synchronization is enabled
+        if not self._synchRangeAct.isChecked():
+            return
+            
+        # Prevent recursion
+        if self._handling_range_sync:
+            return
+            
+        self._handling_range_sync = True
+        try:
+            windows = self._mdiArea.subWindowList()
+            for window in windows:
+                toViewer = window.widget()
+                if (toViewer and isinstance(toViewer, SplitViewMdiChild) and 
+                    toViewer != fromViewer and toViewer.sync_this_range):
+                    
+                    if toViewer.is_volumetric:
+                        # Apply the display range to other volumetric viewers
+                        toViewer.apply_display_range_sync(min_value, max_value)
+        finally:
+            self._handling_range_sync = False
+            
+    def readSettings(self):
+        """Read application settings."""
+        
+        scrollbars_always_checked_off_at_startup = True
+        statusbar_always_checked_off_at_startup = True
+        sync_always_checked_on_at_startup = True
+
+        settings = QtCore.QSettings(COMPANY, APPNAME)
+
+        pos = settings.value('pos', QtCore.QPoint(100, 100))
+        size = settings.value('size', QtCore.QSize(1100, 600))
+        self.move(pos)
+        self.resize(size)
+
+        if settings.contains('windowgeometry'):
+            self.restoreGeometry(settings.value('windowgeometry'))
+        if settings.contains('windowstate'):
+            self.restoreState(settings.value('windowstate'))
+
+        
+        if scrollbars_always_checked_off_at_startup:
+            self._showScrollbarsAct.setChecked(False)
+        else:
+            self._showScrollbarsAct.setChecked(
+                toBool(settings.value(SETTING_SCROLLBARS, False)))
+
+        if statusbar_always_checked_off_at_startup:
+            self._showStatusbarAct.setChecked(False)
+        else:
+            self._showStatusbarAct.setChecked(
+                toBool(settings.value(SETTING_STATUSBAR, False)))
+
+        if sync_always_checked_on_at_startup:
+            self._synchZoomAct.setChecked(True)
+            self._synchPanAct.setChecked(True)
+            self._synchRangeAct.setChecked(True)  # Enable range sync by default
+        else:
+            self._synchZoomAct.setChecked(
+                toBool(settings.value(SETTING_SYNCHZOOM, False)))
+            self._synchPanAct.setChecked(
+                toBool(settings.value(SETTING_SYNCHPAN, False)))
+            self._synchRangeAct.setChecked(True)  # Always enable range sync initially
 
 def main():
     """Run MultiViewMainWindow as main app.
