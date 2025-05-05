@@ -26,6 +26,7 @@ MAIN_PY = os.path.join(BUTTERFLY_DIR, 'butterfly_viewer.py')
 # PyInstaller 명령 및 옵션
 PYINSTALLER_CMD = [
     'pyinstaller',
+    '--onedir',                 # 하나의 디렉토리에 모든 파일 포함
     '--noconfirm',              # 기존 결과 디렉토리 덮어쓰기
     '--clean',                  # 빌드 전 캐시 제거
     '--name=butterfly_viewer',  # 출력 패키지 이름
