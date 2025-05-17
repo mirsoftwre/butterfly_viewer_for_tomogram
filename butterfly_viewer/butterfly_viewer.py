@@ -347,12 +347,12 @@ class SplitViewMdiChild(SplitView):
         curr_min, curr_max = self.volumetric_handler.data_range
         
         # Update labels with actual values
-        self.original_range_label.setText(f"Original: [{orig_min:.1f}, {orig_max:.1f}]")
-        self.current_range_label.setText(f"Current: [{curr_min:.1f}, {curr_max:.1f}]")
+        self.original_range_label.setText(f"Original: [{orig_min:.4f}, {orig_max:.4f}]")
+        self.current_range_label.setText(f"Current: [{curr_min:.4f}, {curr_max:.4f}]")
         
         # Configure sliders
         # Use a precision factor for float values
-        precision = 100 if self.volumetric_handler.is_float else 1
+        precision = 10000 if self.volumetric_handler.is_float else 1
         
         # Set slider ranges based on original min/max
         range_span = orig_max - orig_min
@@ -365,8 +365,8 @@ class SplitViewMdiChild(SplitView):
         self.max_slider.setValue(int(curr_max * precision))
         
         # Update value labels
-        self.min_value_label.setText(f"{curr_min:.1f}")
-        self.max_value_label.setText(f"{curr_max:.1f}")
+        self.min_value_label.setText(f"{curr_min:.4f}")
+        self.max_value_label.setText(f"{curr_max:.4f}")
         
     def on_min_slider_changed(self, value):
         """Handle changes to the minimum value slider.
@@ -378,7 +378,7 @@ class SplitViewMdiChild(SplitView):
             return
             
         # Convert slider value back to actual value
-        precision = 100 if self.volumetric_handler.is_float else 1
+        precision = 10000 if self.volumetric_handler.is_float else 1
         min_value = value / precision
         
         # Ensure min value doesn't exceed max value
@@ -390,7 +390,7 @@ class SplitViewMdiChild(SplitView):
             self.min_slider.blockSignals(False)
             
         # Update display and label
-        self.min_value_label.setText(f"{min_value:.1f}")
+        self.min_value_label.setText(f"{min_value:.4f}")
         self.update_display_range(min_value=min_value)
         
     def on_max_slider_changed(self, value):
@@ -403,7 +403,7 @@ class SplitViewMdiChild(SplitView):
             return
             
         # Convert slider value back to actual value
-        precision = 100 if self.volumetric_handler.is_float else 1
+        precision = 10000 if self.volumetric_handler.is_float else 1
         max_value = value / precision
         
         # Ensure max value doesn't fall below min value
@@ -415,7 +415,7 @@ class SplitViewMdiChild(SplitView):
             self.max_slider.blockSignals(False)
             
         # Update display and label
-        self.max_value_label.setText(f"{max_value:.1f}")
+        self.max_value_label.setText(f"{max_value:.4f}")
         self.update_display_range(max_value=max_value)
         
     def update_display_range(self, min_value=None, max_value=None):
@@ -438,7 +438,7 @@ class SplitViewMdiChild(SplitView):
         if updated:
             # Refresh the current range label
             curr_min, curr_max = self.volumetric_handler.data_range
-            self.current_range_label.setText(f"Current: [{curr_min:.1f}, {curr_max:.1f}]")
+            self.current_range_label.setText(f"Current: [{curr_min:.4f}, {curr_max:.4f}]")
             
             # Emit signal for synchronization
             self.display_range_changed.emit(curr_min, curr_max)
@@ -468,7 +468,7 @@ class SplitViewMdiChild(SplitView):
         if reset:
             # Update the sliders to match the original range
             orig_min, orig_max = self.volumetric_handler.original_data_range
-            precision = 100 if self.volumetric_handler.is_float else 1
+            precision = 10000 if self.volumetric_handler.is_float else 1
             
             self.min_slider.blockSignals(True)
             self.min_slider.setValue(int(orig_min * precision))
@@ -479,9 +479,9 @@ class SplitViewMdiChild(SplitView):
             self.max_slider.blockSignals(False)
             
             # Update the labels
-            self.min_value_label.setText(f"{orig_min:.1f}")
-            self.max_value_label.setText(f"{orig_max:.1f}")
-            self.current_range_label.setText(f"Current: [{orig_min:.1f}, {orig_max:.1f}]")
+            self.min_value_label.setText(f"{orig_min:.4f}")
+            self.max_value_label.setText(f"{orig_max:.4f}")
+            self.current_range_label.setText(f"Current: [{orig_min:.4f}, {orig_max:.4f}]")
             
             # Emit signal for synchronization
             self.display_range_changed.emit(orig_min, orig_max)
@@ -654,7 +654,7 @@ class SplitViewMdiChild(SplitView):
         self._handling_range_sync = True
         
         # Update sliders
-        precision = 100 if self.volumetric_handler.is_float else 1
+        precision = 10000 if self.volumetric_handler.is_float else 1
         
         self.min_slider.blockSignals(True)
         self.min_slider.setValue(int(min_value * precision))
@@ -665,15 +665,15 @@ class SplitViewMdiChild(SplitView):
         self.max_slider.blockSignals(False)
         
         # Update the labels
-        self.min_value_label.setText(f"{min_value:.1f}")
-        self.max_value_label.setText(f"{max_value:.1f}")
+        self.min_value_label.setText(f"{min_value:.4f}")
+        self.max_value_label.setText(f"{max_value:.4f}")
         
         # Update the display range directly
         updated = self.volumetric_handler.update_display_range(min_value, max_value)
         
         if updated:
             # Refresh the current range label
-            self.current_range_label.setText(f"Current: [{min_value:.1f}, {max_value:.1f}]")
+            self.current_range_label.setText(f"Current: [{min_value:.4f}, {max_value:.4f}]")
             
             # Reload the current slice to apply the updated range
             self.load_slice(self.current_slice)
@@ -5042,10 +5042,10 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                 # Update statistics text
                 file_name = os.path.basename(child.currentFile)
                 stats_text = f"Statistics for {file_name}:\n"
-                stats_text += f"Min: {stats['min']:.1f}\n"
-                stats_text += f"Max: {stats['max']:.1f}\n"
-                stats_text += f"Mean: {stats['mean']:.1f}\n"
-                stats_text += f"Std: {stats['std']:.1f}"
+                stats_text += f"Min: {stats['min']:.4f}\n"
+                stats_text += f"Max: {stats['max']:.4f}\n"
+                stats_text += f"Mean: {stats['mean']:.4f}\n"
+                stats_text += f"Std: {stats['std']:.5f}"
                 
                 stats_label.setText(stats_text)
                 stats_label.adjustSize()
