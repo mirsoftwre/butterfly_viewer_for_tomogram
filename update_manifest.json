@@ -1,14 +1,21 @@
 {
-    "latest_version": "1.3.0",
+    "latest_version": "1.3.1",
     "min_required_version": "1.0.0",
     "is_critical": false,
     "update_history": [
+        {
+            "version": "1.3.1",
+            "release_date": "2025-05-17",
+            "download_url": "https://tomocube.app.box.com/file/1864912912535",
+            "changes": [
+                "[Fixed] Fix incorrect value range display when loading volumetric data of type F32."
+            ]
+        },
         {
             "version": "1.3.0",
             "release_date": "2025-05-05",
             "download_url": "https://tomocube.app.box.com/file/1853047863655",
             "changes": [
-                "CHANGELOG",
                 "[Added] Introduce a new region statistics tool for enhanced data analysis.",
                 "[Added] Capture and export profile graphs for better visualization.",
                 "[Added] Include a new-version check at application startup for timely updates.",
