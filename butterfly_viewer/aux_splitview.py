@@ -885,36 +885,13 @@ class SplitView(QtWidgets.QFrame):
                 
                 # 볼륨 이미지에서 원본 데이터 값 가져오기
                 try:
-                    from PIL import Image
-                    import numpy as np
-                    
-                    # 이미지 파일 열기
-                    with Image.open(volumetric_handler.filepath) as img:
-                        img.seek(current_slice)  # 현재 슬라이스로 이동
-                        
-                        # 이미지 범위 확인
-                        if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
-                            # 이미지를 배열로 변환
-                            img_array = np.array(img)
-                            
-                            # 픽셀 값 가져오기
-                            if img.mode == 'L':  # 8비트 그레이스케일
-                                pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                            elif img.mode == 'I':  # 32비트 정수
-                                pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                            elif img.mode == 'F':  # 32비트 실수
-                                value = img_array[int_scene_y, int_scene_x]
-                                pixel_value = f"{value:.3f}"
-                            else:
-                                # RGB, RGBA 등 다른 이미지 모드 처리
-                                if img.mode == 'RGB':
-                                    r, g, b = img_array[int_scene_y, int_scene_x]
-                                    pixel_value = f"({r}, {g}, {b})"
-                                elif img.mode == 'RGBA':
-                                    r, g, b, a = img_array[int_scene_y, int_scene_x]
-                                    pixel_value = f"({r}, {g}, {b}, {a})"
-                                else:
-                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                    img_array = volumetric_handler.get_slice_array(current_slice)
+                    if img_array is not None and 0 <= int_scene_x < img_array.shape[1] and 0 <= int_scene_y < img_array.shape[0]:
+                        value = img_array[int_scene_y, int_scene_x]
+                        if volumetric_handler.is_float:
+                            pixel_value = f"{float(value):.3f}"
+                        else:
+                            pixel_value = f"{value}"
                 except Exception as e:
                     pixel_value = f"Error: {str(e)}"
         else:

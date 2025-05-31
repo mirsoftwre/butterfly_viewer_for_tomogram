@@ -2043,36 +2043,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     
                     # 볼륨 이미지에서 원본 데이터 값 가져오기
                     try:
-                        from PIL import Image
-                        import numpy as np
-                        
-                        # 이미지 파일 열기
-                        with Image.open(volumetric_handler.filepath) as img:
-                            img.seek(current_slice)  # 현재 슬라이스로 이동
-                            
-                            # 이미지 범위 확인
-                            if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
-                                # 이미지를 배열로 변환
-                                img_array = np.array(img)
-                                
-                                # 픽셀 값 가져오기
-                                if img.mode == 'L':  # 8비트 그레이스케일
-                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'I':  # 32비트 정수
-                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'F':  # 32비트 실수
-                                    value = img_array[int_scene_y, int_scene_x]
-                                    pixel_value = f"{value:.3f}"
-                                else:
-                                    # RGB, RGBA 등 다른 이미지 모드 처리
-                                    if img.mode == 'RGB':
-                                        r, g, b = img_array[int_scene_y, int_scene_x]
-                                        pixel_value = f"({r}, {g}, {b})"
-                                    elif img.mode == 'RGBA':
-                                        r, g, b, a = img_array[int_scene_y, int_scene_x]
-                                        pixel_value = f"({r}, {g}, {b}, {a})"
-                                    else:
-                                        pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                        img_array = volumetric_handler.get_slice_array(current_slice)
+                        if img_array is not None and 0 <= int_scene_x < img_array.shape[1] and 0 <= int_scene_y < img_array.shape[0]:
+                            value = img_array[int_scene_y, int_scene_x]
+                            if volumetric_handler.is_float:
+                                pixel_value = f"{float(value):.3f}"
+                            else:
+                                pixel_value = f"{value}"
                     except Exception as e:
                         pixel_value = f"Error: {str(e)}"
             else:
@@ -4287,51 +4264,38 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
         try:
             # Import PIL here to avoid circular imports
             from PIL import Image
-            import numpy as np
-            
-            # Extract the selected region from each slice
+
             crop_rect = itemRect.toRect()
-            
-            # Open the source file for reading
-            with Image.open(self.volumetric_handler.filepath) as source:
-                # Get the first image to determine shape, mode, etc.
-                source.seek(start_slice)
-                first_img = source.copy()
-                mode = first_img.mode
-                
-                # Crop the first image
-                cropped_first = first_img.crop((crop_rect.x(), crop_rect.y(), 
-                                               crop_rect.x() + crop_rect.width(), 
-                                               crop_rect.y() + crop_rect.height()))
-                
-                # Prepare list for all slices
-                cropped_slices = [cropped_first]
-                
-                # Process remaining slices
-                for i in range(start_slice + 1, end_slice + 1):
-                    # Update status with progress
-                    progress_pct = int((i - start_slice) / (end_slice - start_slice + 1) * 100)
-                    self.display_loading_grayout(True, f"Processing 3D crop... {progress_pct}%")
-                    
-                    # Get the slice
-                    source.seek(i)
-                    img = source.copy()
-                    
-                    # Crop the slice
-                    cropped = img.crop((crop_rect.x(), crop_rect.y(), 
-                                       crop_rect.x() + crop_rect.width(), 
-                                       crop_rect.y() + crop_rect.height()))
-                                       
-                    cropped_slices.append(cropped)
-                
-                # Save as multi-page TIFF
-                cropped_first.save(
-                    filepath,
-                    save_all=True,
-                    append_images=cropped_slices[1:],
-                    format='TIFF',
-                    compression='tiff_deflate'
+
+            cropped_slices = []
+            for i in range(start_slice, end_slice + 1):
+                progress_pct = int((i - start_slice) / (end_slice - start_slice + 1) * 100)
+                self.display_loading_grayout(True, f"Processing 3D crop... {progress_pct}%")
+
+                arr = self.volumetric_handler.get_slice_array(i)
+                if arr is None:
+                    continue
+                img = Image.fromarray(arr)
+                cropped = img.crop(
+                    (
+                        crop_rect.x(),
+                        crop_rect.y(),
+                        crop_rect.x() + crop_rect.width(),
+                        crop_rect.y() + crop_rect.height(),
+                    )
                 )
+                cropped_slices.append(cropped)
+
+            if not cropped_slices:
+                raise RuntimeError("No slices cropped")
+
+            cropped_slices[0].save(
+                filepath,
+                save_all=True,
+                append_images=cropped_slices[1:],
+                format="TIFF",
+                compression="tiff_deflate",
+            )
                 
             # Show success message
             self.display_loading_grayout(True, f"3D crop saved successfully: {filepath}")
@@ -4983,13 +4947,10 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             if hasattr(child, 'is_volumetric') and child.is_volumetric:
                 # For volumetric data
                 try:
-                    from PIL import Image
-                    import numpy as np
-                    
                     current_slice = child.current_slice
-                    with Image.open(child.volumetric_handler.filepath) as img:
-                        img.seek(current_slice)
-                        image_data = np.array(img)
+                    image_data = child.volumetric_handler.get_slice_array(current_slice)
+                    if image_data is None:
+                        raise RuntimeError("Slice load failed")
                 except Exception as e:
                     print(f"Error loading volumetric data: {str(e)}")
                     continue
