@@ -22,6 +22,7 @@ Supported formats:
 import os
 import numpy as np
 from PIL import Image
+import tifffile
 from PyQt5 import QtCore, QtGui
 
 
@@ -56,7 +57,9 @@ class VolumetricImageHandler:
         self.data_range = (0, 255)  # Default for 8-bit data
         self.original_data_range = (0, 255)  # Store original range
         self.use_forced_range = False  # Flag to indicate if range is forced
+        self.use_tifffile = False  # Flag for using tifffile backend
         self._cached_slices = {}  # Dictionary to cache loaded slices
+        self._memmap = None  # Optional memmap for tifffile backend
         self._analyze_file()
         
     def _analyze_file(self):
@@ -64,12 +67,34 @@ class VolumetricImageHandler:
         Also determines bit depth and data type, and analyzes all slices to find global min/max.
         """
         try:
+            with tifffile.TiffFile(self.filepath) as tif:
+                self.use_tifffile = True
+                series = tif.series[0]
+                dtype = series.dtype
+                self.bit_depth = dtype.itemsize * 8
+                self.is_float = np.issubdtype(dtype, np.floating)
+                self._memmap = tifffile.memmap(self.filepath, series=0)
+                arr = self._memmap
+                if arr.ndim > 2:
+                    self.total_slices = arr.shape[0]
+                else:
+                    self.total_slices = len(series.pages)
+                global_min = float(arr.min())
+                global_max = float(arr.max())
+                if global_min < global_max:
+                    self.original_data_range = (global_min, global_max)
+                    if not self.use_forced_range:
+                        self.data_range = self.original_data_range
+                self.current_slice = self.total_slices // 2
+                return
+        except Exception as e:
+            print(f"tifffile analysis failed: {e}")
+
+        try:
             with Image.open(self.filepath) as img:
-                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
                 if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
                     raise ValueError(f"Unsupported image mode: {img.mode}. Only single-channel images are supported.")
-                
-                # Determine bit depth and data type
+
                 if img.mode == 'L':
                     self.bit_depth = 8
                     self.is_float = False
@@ -77,50 +102,38 @@ class VolumetricImageHandler:
                 elif img.mode.startswith('I;16'):
                     self.bit_depth = 16
                     self.is_float = False
-                    # Initialize with 16-bit unsigned integer range
                     global_min, global_max = np.iinfo(np.uint16).max, np.iinfo(np.uint16).min
                 elif img.mode == 'I':
                     self.bit_depth = 32
                     self.is_float = False
-                    # Initialize with extreme values
                     global_min, global_max = np.iinfo(np.int32).max, np.iinfo(np.int32).min
                 elif img.mode == 'F':
                     self.bit_depth = 32
                     self.is_float = True
-                    # Initialize with extreme values
                     global_min, global_max = float('inf'), float('-inf')
-                
-                # Count total slices and find global min/max across all slices
+
                 self.total_slices = 0
-                
                 try:
-                    # First pass: count slices and compute global min/max
                     while True:
-                        # For non-8-bit images, analyze each slice to find min/max
                         if img.mode != 'L':
                             img_array = np.array(img)
-                            # For 16-bit images, ensure correct data type
                             if img.mode.startswith('I;16'):
                                 img_array = img_array.astype(np.uint16)
                             slice_min = np.min(img_array)
                             slice_max = np.max(img_array)
-                            
-                            # Update global min/max
                             global_min = min(global_min, slice_min)
                             global_max = max(global_max, slice_max)
-                        
+
                         self.total_slices += 1
                         img.seek(img.tell() + 1)
                 except EOFError:
                     pass
-                
-                # Store the original data range for all slices
+
                 if global_min < global_max:
                     self.original_data_range = (float(global_min), float(global_max))
                     if not self.use_forced_range:
                         self.data_range = self.original_data_range
-                
-                # Set current slice to middle by default
+
                 self.current_slice = self.total_slices // 2
         except Exception as e:
             print(f"Error analyzing volumetric file: {e}")
@@ -137,24 +150,32 @@ class VolumetricImageHandler:
             bool: True if the file is a single-channel multi-page TIFF with more than 1 slice, False otherwise
         """
         try:
-            # Check if file exists and is a TIFF
-            if not os.path.exists(filepath) or not filepath.lower().endswith(('.tif', '.tiff')):
+            if not os.path.exists(filepath) or not filepath.lower().endswith((".tif", ".tiff")):
                 return False
-                
-            # Check if it's a single-channel image
-            with Image.open(filepath) as img:
-                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
-                if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
+
+            with tifffile.TiffFile(filepath) as tif:
+                series = tif.series[0]
+                shape = series.shape
+                samples = series.pages[0].samplesperpixel if series.pages else 1
+                if samples != 1:
                     return False
-                
-                # Check if it has multiple pages
-                try:
-                    img.seek(1)  # Try to move to the second frame
-                    return True  # If successful, it's multi-page
-                except EOFError:
-                    return False  # Only one page
+                if len(shape) > 2 and shape[0] > 1:
+                    return True
+                if len(series.pages) > 1:
+                    return True
+                return False
         except Exception:
-            return False
+            try:
+                with Image.open(filepath) as img:
+                    if img.mode not in ("L", "I", "F", "I;16", "I;16L", "I;16B", "I;16N"):
+                        return False
+                    try:
+                        img.seek(1)
+                        return True
+                    except EOFError:
+                        return False
+            except Exception:
+                return False
     
     def _normalize_image(self, img):
         """Normalize image data to 8-bit range for display.
@@ -209,27 +230,53 @@ class VolumetricImageHandler:
             
         # Load the slice
         try:
-            with Image.open(self.filepath) as img:
-                img.seek(slice_index)
-                
-                # Normalize image to 8-bit for display
-                normalized_img = self._normalize_image(img)
-                
-                # Convert PIL Image to QPixmap
-                data = normalized_img.tobytes("raw", "L")
-                qimage = QtGui.QImage(data, img.width, img.height, img.width, QtGui.QImage.Format_Grayscale8)
-                pixmap = QtGui.QPixmap.fromImage(qimage)
-                
-                # Cache the slice (limit cache to 10 slices to manage memory)
-                if len(self._cached_slices) > 10:
-                    # Remove least recently used slice (first key)
-                    oldest_key = next(iter(self._cached_slices))
-                    del self._cached_slices[oldest_key]
-                
-                self._cached_slices[slice_index] = pixmap
-                return pixmap
+            arr = self.get_slice_array(slice_index)
+            if arr is None:
+                return None
+            img = Image.fromarray(arr)
+
+            normalized_img = self._normalize_image(img)
+
+            data = normalized_img.tobytes("raw", "L")
+            qimage = QtGui.QImage(
+                data,
+                normalized_img.width,
+                normalized_img.height,
+                normalized_img.width,
+                QtGui.QImage.Format_Grayscale8,
+            )
+            pixmap = QtGui.QPixmap.fromImage(qimage)
+
+            # Cache the slice (limit cache to 10 slices to manage memory)
+            if len(self._cached_slices) > 10:
+                oldest_key = next(iter(self._cached_slices))
+                del self._cached_slices[oldest_key]
+
+            self._cached_slices[slice_index] = pixmap
+            return pixmap
         except Exception as e:
             print(f"Error loading slice {slice_index}: {e}")
+            return None
+
+    def get_slice_array(self, slice_index=None):
+        """Get the raw numpy array for the specified slice."""
+        if slice_index is None:
+            slice_index = self.current_slice
+        if slice_index < 0 or slice_index >= self.total_slices:
+            return None
+        try:
+            if self.use_tifffile:
+                if self._memmap is not None:
+                    return np.array(self._memmap[slice_index])
+                return tifffile.imread(self.filepath, key=slice_index)
+            with Image.open(self.filepath) as im:
+                im.seek(slice_index)
+                arr = np.array(im)
+                if im.mode.startswith('I;16'):
+                    arr = arr.astype(np.uint16)
+                return arr
+        except Exception as e:
+            print(f"Error loading slice array {slice_index}: {e}")
             return None
     
     def set_current_slice(self, slice_index):
