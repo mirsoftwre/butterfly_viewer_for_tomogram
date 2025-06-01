@@ -611,28 +611,15 @@ def get_profile_values(image, start_point, end_point, num_samples=1000, scene=No
                 volumetric_handler = mdi_child.volumetric_handler
                 current_slice = mdi_child.current_slice
                 try:
-                    # Open the image file and get the current slice
-                    with Image.open(volumetric_handler.filepath) as img:
-                        img.seek(current_slice)
-                        # Convert coordinates to integers and clip to image boundaries
-                        x_indices = np.clip(x.astype(int), 0, img.width - 1)
-                        y_indices = np.clip(y.astype(int), 0, img.height - 1)
-                        # Convert image to numpy array
-                        img_array = np.array(img)
-                        # Get values along the line
-                        if img.mode == 'L':  # 8-bit grayscale
-                            values = img_array[y_indices, x_indices]
-                        elif img.mode == 'I':  # 32-bit integer
-                            values = img_array[y_indices, x_indices]
-                        elif img.mode == 'F':  # 32-bit float
-                            values = img_array[y_indices, x_indices]
-                        else:  # RGB or RGBA
-                            if len(img_array.shape) == 3:
-                                # Average across color channels
-                                values = np.mean(img_array[y_indices, x_indices], axis=1)
-                            else:
-                                values = img_array[y_indices, x_indices]
-                        return positions, values
+                    img_array = volumetric_handler.get_slice_array(current_slice)
+                    if img_array is None:
+                        return positions, np.zeros_like(positions)
+                    x_indices = np.clip(x.astype(int), 0, img_array.shape[1] - 1)
+                    y_indices = np.clip(y.astype(int), 0, img_array.shape[0] - 1)
+                    values = img_array[y_indices, x_indices]
+                    if img_array.ndim == 3:
+                        values = np.mean(values, axis=1)
+                    return positions, values
                 except Exception as e:
                     print(f"Error reading volumetric data: {str(e)}")
                     return positions, np.zeros_like(positions)
