@@ -32,6 +32,8 @@ dependencies:
   - matplotlib=3.3.4
   - pandas=1.1.5
   - openpyxl=3.0.7
+  - tifffile=2021.4.8
+  - imagecodecs=2021.6.8
   - pip:
     - pyinstaller==4.3
     - packaging==20.9
