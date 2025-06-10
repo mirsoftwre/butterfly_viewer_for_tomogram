@@ -98,7 +98,7 @@ class ImageLabel(QtWidgets.QLabel):
 
     def stylesheet_occupied_notaddable(self):
         """Set label stylesheet to occupied and unaddable state."""
-        self.setStyleSheet("QLabel font-size: 9pt; border: 0.13em dashed gray; border-radius: 0.5em; background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6F6F6F, stop: 1 #3F3F3F);}")
+        self.setStyleSheet("QLabel {font-size: 9pt; border: 0.13em dashed gray; border-radius: 0.5em; background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6F6F6F, stop: 1 #3F3F3F);}")
 
     def stylesheet_occupied_addable(self):
         """Set label stylesheet to occupied and addable state."""

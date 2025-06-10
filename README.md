@@ -59,6 +59,7 @@ Our [Butterfly Viewer page](https://olive-groves.github.io/butterfly_viewer) doc
 ### Add as [macOS app](https://olive-groves.github.io/butterfly_viewer/butterfly_viewer.html#macos-app)
 
 ### Run on [Python](https://olive-groves.github.io/butterfly_viewer/butterfly_viewer.html#python)
+- Install dependencies listed in `requirements.txt` (including the `packaging` library used for version checks).
 
 ### [Tutorial](https://olive-groves.github.io/butterfly_viewer/butterfly_viewer.html#tutorial) of main features
 

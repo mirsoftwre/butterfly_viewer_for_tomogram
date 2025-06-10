@@ -18,7 +18,7 @@ class FilenameLabel(QtWidgets.QLabel):
     Args:
         text (str): The text to show (the filename).
         remove_path (bool): True to remove path from the filename (filepath).
-        visibilty_based_on_text (bool): True to hide label when text is None; False to always show.
+        visibility_based_on_text (bool): True to hide label when text is None; False to always show.
         belongs_to_split (bool): True for improved style for sliding overlays in SplitView; False as default.
     """
     
