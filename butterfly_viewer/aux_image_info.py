@@ -7,7 +7,7 @@ Not intended as a script.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from PyQt5 import QtCore, QtWidgets
-from PIL import Image
+import tifffile
 import numpy as np
 
 class ImageInfoDialog(QtWidgets.QDialog):
@@ -63,79 +63,75 @@ class ImageInfoDialog(QtWidgets.QDialog):
         
         try:
             # Open image file
-            with Image.open(filepath) as img:
+            with tifffile.TiffFile(filepath) as tif:
                 # Basic information
                 form_layout.addRow("File:", QtWidgets.QLabel(filepath))
-                form_layout.addRow("Format:", QtWidgets.QLabel(img.format))
-                form_layout.addRow("Size:", QtWidgets.QLabel(f"{img.width} x {img.height} pixels"))
+                form_layout.addRow("Format:", QtWidgets.QLabel("TIFF"))
                 
-                # Mode information with description
-                mode_label = QtWidgets.QLabel(img.mode)
-                mode_label.setToolTip(self.MODE_DESCRIPTIONS.get(img.mode, ""))
+                # Get image data
+                img = tif.series[0].pages[0].asarray()
+                
+                # Size information
+                if len(img.shape) == 2:  # Grayscale
+                    height, width = img.shape
+                    channels = 1
+                elif len(img.shape) == 3:  # Color
+                    height, width = img.shape[:2]
+                    channels = img.shape[2]
+                else:
+                    height, width = img.shape[:2]
+                    channels = 1
+                
+                form_layout.addRow("Size:", QtWidgets.QLabel(f"{width} x {height} pixels"))
+                
+                # Mode information
+                if len(img.shape) == 2:  # Grayscale
+                    mode = 'L'
+                elif len(img.shape) == 3:
+                    if channels == 3:
+                        mode = 'RGB'
+                    elif channels == 4:
+                        mode = 'RGBA'
+                    else:
+                        mode = f'Unknown ({channels} channels)'
+                else:
+                    mode = 'Unknown'
+                
+                mode_label = QtWidgets.QLabel(mode)
+                mode_label.setToolTip(self.MODE_DESCRIPTIONS.get(mode, ""))
                 form_layout.addRow("Mode:", mode_label)
                 
                 # Add mode description if available
-                if img.mode in self.MODE_DESCRIPTIONS:
-                    desc_label = QtWidgets.QLabel(self.MODE_DESCRIPTIONS[img.mode])
+                if mode in self.MODE_DESCRIPTIONS:
+                    desc_label = QtWidgets.QLabel(self.MODE_DESCRIPTIONS[mode])
                     desc_label.setWordWrap(True)
                     desc_label.setStyleSheet("color: gray; font-size: 9pt;")
                     form_layout.addRow("", desc_label)
                 
-                # Get number of channels
-                if img.mode == 'RGB':
-                    channels = 3
-                elif img.mode == 'RGBA':
-                    channels = 4
-                elif img.mode == 'L':
-                    channels = 1
-                elif img.mode == 'CMYK':
-                    channels = 4
-                elif img.mode == 'YCbCr':
-                    channels = 3
-                elif img.mode == 'LAB':
-                    channels = 3
-                elif img.mode == 'HSV':
-                    channels = 3
-                elif img.mode == 'LA':
-                    channels = 2
-                else:
-                    channels = None
-                    
-                if channels is not None:
-                    form_layout.addRow("Channels:", QtWidgets.QLabel(str(channels)))
+                # Channels information
+                form_layout.addRow("Channels:", QtWidgets.QLabel(str(channels)))
                 
-                # Get bit depth
-                if img.mode == '1':
-                    bit_depth = 1
-                elif img.mode in ['RGB', 'RGBA', 'L', 'P', 'CMYK', 'YCbCr', 'LAB', 'HSV']:
+                # Bit depth information
+                if img.dtype == np.uint8:
                     bit_depth = 8
-                elif img.mode == 'I':
-                    bit_depth = 32
-                elif img.mode == 'F':
-                    bit_depth = 32
-                elif img.mode.startswith('I;16'):
+                elif img.dtype == np.uint16:
                     bit_depth = 16
+                elif img.dtype == np.uint32:
+                    bit_depth = 32
+                elif img.dtype == np.float32:
+                    bit_depth = 32
+                elif img.dtype == np.float64:
+                    bit_depth = 64
                 else:
                     bit_depth = None
-                    
+                
                 if bit_depth is not None:
                     form_layout.addRow("Bit Depth:", QtWidgets.QLabel(f"{bit_depth} bits"))
                 
                 # Check if multi-page
-                try:
-                    img.seek(1)
-                    # Count total pages
-                    n_frames = 1
-                    while True:
-                        try:
-                            img.seek(img.tell() + 1)
-                            n_frames += 1
-                        except EOFError:
-                            break
+                n_frames = len(tif.series[0].pages)
+                if n_frames > 1:
                     form_layout.addRow("Number of Images:", QtWidgets.QLabel(str(n_frames)))
-                except EOFError:
-                    # Not a multi-page image
-                    pass
                 
         except Exception as e:
             error_label = QtWidgets.QLabel(f"Error reading image information: {str(e)}")

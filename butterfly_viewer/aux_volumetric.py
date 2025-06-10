@@ -16,13 +16,20 @@ Supported formats:
   * 16-bit unsigned integer
   * 32-bit signed integer
   * 32-bit floating point
+- BigTIFF support for files larger than 2GB
 """
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import os
 import numpy as np
-from PIL import Image
+from PIL import Image, TiffTags, TiffImagePlugin
 from PyQt5 import QtCore, QtGui
+import logging
+import tifffile
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class VolumetricImageHandler:
@@ -30,6 +37,7 @@ class VolumetricImageHandler:
     
     Provides functionality to detect, analyze and load slices from multi-page TIFF files.
     Only supports single-channel (grayscale) TIFF files with various bit depths.
+    Supports BigTIFF format for files larger than 2GB.
     
     Attributes:
         filepath (str): Path to the volumetric image file
@@ -40,185 +48,199 @@ class VolumetricImageHandler:
         data_range (tuple): Min and max values in data for normalization
         original_data_range (tuple): Original min and max values from full data analysis
         use_forced_range (bool): Whether to use a forced range instead of the detected range
+        is_bigtiff (bool): True if the file is in BigTIFF format
     """
     
     def __init__(self, filepath):
-        """Initialize the volumetric image handler.
+        """Initialize the handler with a file path.
         
         Args:
-            filepath (str): Path to the multi-page TIFF file
+            filepath (str): Path to the volumetric image file.
         """
         self.filepath = filepath
-        self.total_slices = 0
+        self.is_volumetric = False
+        self.shape = None
+        self.dtype = None
+        self.axes = None
+        self.n_pages = 0
+        self.total_slices = 0  # For backward compatibility
+        self.is_bigtiff = False
+        self.byte_order = None
+        self.compression = None
+        self.photometric = None
+        self.planar_config = None
+        self.bits_per_sample = None
+        self.samples_per_pixel = None
+        self.rows_per_strip = None
+        self.image_width = None
+        self.image_length = None
+        self.memory_usage = 0
         self.current_slice = 0
-        self.bit_depth = 8
-        self.is_float = False
-        self.data_range = (0, 255)  # Default for 8-bit data
-        self.original_data_range = (0, 255)  # Store original range
-        self.use_forced_range = False  # Flag to indicate if range is forced
-        self._cached_slices = {}  # Dictionary to cache loaded slices
+        self.data_range = None
+        self.original_data_range = None  # For backward compatibility
+        self.use_forced_range = False  # For backward compatibility
+        self.is_float = False  # For backward compatibility
+        self.bit_depth = 8  # For backward compatibility
+        self._cached_slices = {}  # For backward compatibility
+        
+        # Analyze the file
         self._analyze_file()
         
+        # Set current slice to middle by default
+        if self.n_pages > 0:
+            self.current_slice = self.n_pages // 2
+            self.total_slices = self.n_pages  # For backward compatibility
+        
     def _analyze_file(self):
-        """Analyze the file to determine if it's a multi-page TIFF and count slices.
-        Also determines bit depth and data type, and analyzes all slices to find global min/max.
-        """
+        """Analyze the file to determine its type and properties."""
         try:
-            with Image.open(self.filepath) as img:
-                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
-                if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
-                    raise ValueError(f"Unsupported image mode: {img.mode}. Only single-channel images are supported.")
+            with tifffile.TiffFile(self.filepath) as tif:
+                self.is_volumetric = True
+                self.shape = tif.series[0].shape
+                self.dtype = tif.series[0].dtype
+                self.axes = tif.series[0].axes
+                self.n_pages = len(tif.series[0].pages)
+                self.is_bigtiff = tif.is_bigtiff
+                logger.info(f"File is BigTIFF: {self.is_bigtiff}")
+                logger.info(f"File shape: {self.shape}")
+                logger.info(f"File dtype: {self.dtype}")
+                logger.info(f"File axes: {self.axes}")
+                logger.info(f"Number of pages: {self.n_pages}")
                 
-                # Determine bit depth and data type
-                if img.mode == 'L':
-                    self.bit_depth = 8
-                    self.is_float = False
-                    global_min, global_max = 0, 255
-                elif img.mode.startswith('I;16'):
-                    self.bit_depth = 16
-                    self.is_float = False
-                    # Initialize with 16-bit unsigned integer range
-                    global_min, global_max = np.iinfo(np.uint16).max, np.iinfo(np.uint16).min
-                elif img.mode == 'I':
-                    self.bit_depth = 32
-                    self.is_float = False
-                    # Initialize with extreme values
-                    global_min, global_max = np.iinfo(np.int32).max, np.iinfo(np.int32).min
-                elif img.mode == 'F':
-                    self.bit_depth = 32
+                # Get metadata from the first page
+                page = tif.series[0].pages[0]
+                self.byte_order = tif.byteorder
+                self.compression = page.compression
+                self.photometric = page.photometric
+                self.planar_config = page.planarconfig
+                self.bits_per_sample = page.bitspersample
+                self.samples_per_pixel = page.samplesperpixel
+                self.rows_per_strip = page.rowsperstrip
+                self.image_width = page.imagewidth
+                self.image_length = page.imagelength
+                self.memory_usage = np.prod(self.shape) * self.dtype.itemsize
+                
+                # Set data type specific properties
+                if self.dtype == np.float32:
                     self.is_float = True
-                    # Initialize with extreme values
-                    global_min, global_max = float('inf'), float('-inf')
+                    self.bit_depth = 32
+                    data = tif.series[0].asarray()
+                    min_val = float(np.min(data))
+                    max_val = float(np.max(data))
+                    self.original_data_range = (min_val, max_val)
+                    self.data_range = self.original_data_range
+                    logger.info(f"Data range: {self.data_range}")
+                elif self.dtype == np.uint8:
+                    self.is_float = False
+                    self.bit_depth = 8
+                    self.original_data_range = (0, 255)
+                elif self.dtype == np.uint16:
+                    self.is_float = False
+                    self.bit_depth = 16
+                    self.original_data_range = (0, 65535)
+                elif self.dtype == np.int32:
+                    self.is_float = False
+                    self.bit_depth = 32
+                    self.original_data_range = (-2147483648, 2147483647)
+                else:
+                    raise ValueError(f"Unsupported data type: {self.dtype}")
                 
-                # Count total slices and find global min/max across all slices
-                self.total_slices = 0
-                
-                try:
-                    # First pass: count slices and compute global min/max
-                    while True:
-                        # For non-8-bit images, analyze each slice to find min/max
-                        if img.mode != 'L':
-                            img_array = np.array(img)
-                            # For 16-bit images, ensure correct data type
-                            if img.mode.startswith('I;16'):
-                                img_array = img_array.astype(np.uint16)
-                            slice_min = np.min(img_array)
-                            slice_max = np.max(img_array)
-                            
-                            # Update global min/max
-                            global_min = min(global_min, slice_min)
-                            global_max = max(global_max, slice_max)
-                        
-                        self.total_slices += 1
-                        img.seek(img.tell() + 1)
-                except EOFError:
-                    pass
-                
-                # Store the original data range for all slices
-                if global_min < global_max:
-                    self.original_data_range = (float(global_min), float(global_max))
-                    if not self.use_forced_range:
-                        self.data_range = self.original_data_range
-                
-                # Set current slice to middle by default
-                self.current_slice = self.total_slices // 2
+                if not self.is_float:
+                    self.data_range = self.original_data_range
         except Exception as e:
-            print(f"Error analyzing volumetric file: {e}")
-            self.total_slices = 0
+            logger.error(f"Error analyzing file with tifffile: {e}")
+            raise ValueError(f"Could not read file {self.filepath} with tifffile")
     
     @staticmethod
     def is_volumetric_file(filepath):
-        """Check if the given file is a multi-page TIFF (volumetric image).
+        """Check if a file is a volumetric image file (multi-page TIFF).
         
         Args:
-            filepath (str): Path to the file to check
+            filepath (str): Path to the file to check.
             
         Returns:
-            bool: True if the file is a single-channel multi-page TIFF with more than 1 slice, False otherwise
+            bool: True if the file is a volumetric image file, False otherwise.
         """
         try:
-            # Check if file exists and is a TIFF
-            if not os.path.exists(filepath) or not filepath.lower().endswith(('.tif', '.tiff')):
+            with tifffile.TiffFile(filepath) as tif:
+                # Check if it's a multi-page TIFF
+                if len(tif.series) > 0 and len(tif.series[0].shape) >= 3:
+                    logger.info(f"File detected as volumetric: {filepath}")
+                    logger.info(f"Shape: {tif.series[0].shape}")
+                    logger.info(f"Is BigTIFF: {tif.is_bigtiff}")
+                    return True
                 return False
-                
-            # Check if it's a single-channel image
-            with Image.open(filepath) as img:
-                # Allow 8-bit grayscale (L), 32-bit integer (I), 32-bit float (F), and all 16-bit integer variants
-                if img.mode not in ('L', 'I', 'F', 'I;16', 'I;16L', 'I;16B', 'I;16N'):
-                    return False
-                
-                # Check if it has multiple pages
-                try:
-                    img.seek(1)  # Try to move to the second frame
-                    return True  # If successful, it's multi-page
-                except EOFError:
-                    return False  # Only one page
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking file with tifffile: {e}")
             return False
     
-    def _normalize_image(self, img):
-        """Normalize image data to 8-bit range for display.
+    def _normalize_image(self, img_array):
+        """Normalize image data to 8-bit range.
         
         Args:
-            img (PIL.Image): The original image
+            img_array (numpy.ndarray): Input image array
             
         Returns:
-            PIL.Image: Normalized 8-bit grayscale image
+            numpy.ndarray: Normalized 8-bit image array
         """
-        if img.mode == 'L':
-            return img  # Already 8-bit, no normalization needed
-        
-        # For 16-bit, 32-bit integer, or float data, normalize to 8-bit range
-        img_array = np.array(img)
-        
-        # Handle 16-bit images
-        if img.mode.startswith('I;16'):
-            img_array = img_array.astype(np.uint16)
-        
-        # Check if we need to update the data range
-        min_val, max_val = self.data_range
-        if min_val == max_val:  # Handle edge case of constant value
-            normalized = np.zeros_like(img_array, dtype=np.uint8)
-            return Image.fromarray(normalized)
-        
-        # Normalize to [0, 255] range
-        normalized = np.clip(img_array, min_val, max_val)  # Clip to min/max range
-        normalized = ((normalized - min_val) / (max_val - min_val) * 255).astype(np.uint8)
-        
-        return Image.fromarray(normalized)
+        # Handle float32 data
+        if img_array.dtype == np.float32:
+            min_val, max_val = np.min(img_array), np.max(img_array)
+            if min_val == max_val:
+                return np.zeros_like(img_array, dtype=np.uint8)
+            return ((img_array - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+            
+        # Handle integer data
+        if img_array.dtype == np.uint8:
+            return img_array
+        elif img_array.dtype == np.uint16:
+            return (img_array / 256).astype(np.uint8)
+        elif img_array.dtype == np.int32:
+            # Normalize to 0-255 range
+            min_val, max_val = np.min(img_array), np.max(img_array)
+            if min_val == max_val:
+                return np.zeros_like(img_array, dtype=np.uint8)
+            return ((img_array - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+        else:
+            raise ValueError(f"Unsupported data type: {img_array.dtype}")
     
     def get_slice_pixmap(self, slice_index=None):
-        """Get a QPixmap for the specified slice.
+        """Get a QPixmap of the specified slice.
         
         Args:
-            slice_index (int, optional): Index of the slice to load. If None, uses current_slice.
+            slice_index (int, optional): Index of the slice to get. If None, uses current_slice.
             
         Returns:
-            QPixmap: The pixmap for the requested slice, or None if loading fails
+            QPixmap: The slice as a QPixmap.
         """
         if slice_index is None:
             slice_index = self.current_slice
             
         # Validate index
-        if slice_index < 0 or slice_index >= self.total_slices:
+        if slice_index < 0 or slice_index >= self.n_pages:
             return None
             
         # Check if slice is already cached
         if slice_index in self._cached_slices:
             return self._cached_slices[slice_index]
             
-        # Load the slice
         try:
-            with Image.open(self.filepath) as img:
-                img.seek(slice_index)
+            with tifffile.TiffFile(self.filepath) as tif:
+                # Read the specific slice
+                data = tif.series[0].pages[slice_index].asarray()
                 
-                # Normalize image to 8-bit for display
-                normalized_img = self._normalize_image(img)
+                # Get current data range
+                min_val, max_val = self.data_range
                 
-                # Convert PIL Image to QPixmap
-                data = normalized_img.tobytes("raw", "L")
-                qimage = QtGui.QImage(data, img.width, img.height, img.width, QtGui.QImage.Format_Grayscale8)
-                pixmap = QtGui.QPixmap.fromImage(qimage)
+                # Normalize to 0-255 range using the current data range
+                data = np.clip(data, min_val, max_val)
+                data = ((data - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                
+                # Convert to QImage
+                height, width = data.shape
+                bytes_per_line = width
+                image = QtGui.QImage(data.data, width, height, bytes_per_line, QtGui.QImage.Format_Grayscale8)
+                pixmap = QtGui.QPixmap.fromImage(image)
                 
                 # Cache the slice (limit cache to 10 slices to manage memory)
                 if len(self._cached_slices) > 10:
@@ -228,9 +250,10 @@ class VolumetricImageHandler:
                 
                 self._cached_slices[slice_index] = pixmap
                 return pixmap
+                
         except Exception as e:
-            print(f"Error loading slice {slice_index}: {e}")
-            return None
+            logger.error(f"Error reading slice {slice_index} with tifffile: {e}")
+            raise ValueError(f"Could not read slice {slice_index} from file {self.filepath}")
     
     def set_current_slice(self, slice_index):
         """Set the current slice index.
@@ -270,39 +293,43 @@ class VolumetricImageHandler:
         }
     
     def update_display_range(self, min_value=None, max_value=None, force=False):
-        """Update the display range for normalization of high bit-depth images.
+        """Update the display range for the image.
         
         Args:
-            min_value (float, optional): Minimum value for display range. If None, use detected min.
-            max_value (float, optional): Maximum value for display range. If None, use detected max.
-            force (bool, optional): If True, force the range even when new data is loaded.
+            min_value (float, optional): New minimum value. If None, uses current minimum.
+            max_value (float, optional): New maximum value. If None, uses current maximum.
+            force (bool, optional): If True, forces the range even if it's outside original range.
             
         Returns:
-            bool: True if successful
+            bool: True if the range was updated successfully
         """
-        if min_value is not None and max_value is not None and force:
-            # Force the range and set the flag
+        if force:
             self.use_forced_range = True
-            current_min, current_max = min_value, max_value
-        else:
-            # Use the current range as a starting point
-            current_min, current_max = self.data_range
-            
-            if min_value is not None:
-                current_min = min_value
-            
-            if max_value is not None:
-                current_max = max_value
-        
-        # Update the range if valid
-        if current_min < current_max:
-            self.data_range = (current_min, current_max)
+            self.data_range = (min_value, max_value)
             # Clear cache to force re-normalization
             self._cached_slices = {}
             return True
-        
-        return False
-        
+        else:
+            self.use_forced_range = False
+            current_min, current_max = self.data_range
+            
+            # If min_value is None, keep current min value
+            new_min = min_value if min_value is not None else current_min
+            # If max_value is None, keep current max value
+            new_max = max_value if max_value is not None else current_max
+            
+            # Ensure the new range is within the original range
+            min_val = max(new_min, self.original_data_range[0])
+            max_val = min(new_max, self.original_data_range[1])
+            
+            # Only clear cache if the range actually changed
+            if (min_val, max_val) != self.data_range:
+                self.data_range = (min_val, max_val)
+                # Clear cache to force re-normalization
+                self._cached_slices = {}
+            
+            return True
+    
     def reset_display_range(self):
         """Reset the display range to the original detected values.
         

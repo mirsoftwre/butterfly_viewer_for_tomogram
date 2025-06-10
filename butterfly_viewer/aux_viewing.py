@@ -14,6 +14,7 @@ Credits:
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+import numpy as np
 
 
 
@@ -340,3 +341,52 @@ class SynchableGraphicsView(QtWidgets.QGraphicsView):
         print("%s%5.3f %5.3f %5.3f" % (padding, t.m11(), t.m12(), t.m13()))
         print("%s%5.3f %5.3f %5.3f" % (padding, t.m21(), t.m22(), t.m23()))
         print("%s%5.3f %5.3f %5.3f" % (padding, t.m31(), t.m32(), t.m33()))
+
+    def update_view(self):
+        """Update the view with current slice data."""
+        if not self.volumetric_handler:
+            return
+            
+        try:
+            import tifffile
+            
+            # Get current slice
+            current_slice = getattr(self, 'current_slice', 0)
+            print(f"\n[Update View] Current slice: {current_slice}")
+            
+            # Read slice data using tifffile
+            with tifffile.TiffFile(self.volumetric_handler.filepath) as tif:
+                data = tif.series[0].pages[current_slice].asarray()
+                print(f"[Update View] Raw data - min: {data.min():.4f}, max: {data.max():.4f}, dtype: {data.dtype}")
+                
+                # Convert to QImage
+                if data.dtype.kind == 'f':  # float data
+                    # Use the volumetric handler's data range for normalization
+                    min_val, max_val = self.volumetric_handler.data_range
+                    print(f"[Update View] Data range from handler - min: {min_val:.4f}, max: {max_val:.4f}")
+                    
+                    if max_val > min_val:
+                        data = np.clip(data, min_val, max_val)
+                        print(f"[Update View] After clipping - min: {data.min():.4f}, max: {data.max():.4f}")
+                        
+                        data = ((data - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                        print(f"[Update View] After normalization - min: {data.min()}, max: {data.max()}")
+                    else:
+                        print("[Update View] Invalid range (max <= min), using zeros")
+                        data = np.zeros_like(data, dtype=np.uint8)
+                
+                # Convert to QImage
+                height, width = data.shape
+                bytes_per_line = width
+                image = QtGui.QImage(data.data, width, height, bytes_per_line, QtGui.QImage.Format_Grayscale8)
+                
+                # Convert to QPixmap and update view
+                pixmap = QtGui.QPixmap.fromImage(image)
+                self._pixmapItem_main_topleft.setPixmap(pixmap)
+                
+                # Update slice info
+                self.update_slice_info()
+                
+        except Exception as e:
+            print(f"Error updating view: {str(e)}")
+            return

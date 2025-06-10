@@ -149,7 +149,7 @@ class ProfileLine(QtWidgets.QGraphicsLineItem):
                                                 break
                                         
                                         if pixmap_item:
-                                            positions, values = get_profile_values(None, start_point, end_point, 
+                                            positions, values, colors = get_profile_values(None, start_point, end_point, 
                                                                                 scene=other_scene, pixmap_item=pixmap_item)
                                             if positions is not None and values is not None:
                                                 profiles.append((positions, values))
@@ -321,7 +321,7 @@ class ProfileHandle(QtWidgets.QGraphicsItem):
                                     pixmap_item = item
                                     break
                             if pixmap_item:
-                                positions, values = get_profile_values(None, start_point, end_point, scene=other_scene, pixmap_item=pixmap_item)
+                                positions, values, colors = get_profile_values(None, start_point, end_point, scene=other_scene, pixmap_item=pixmap_item)
                                 if positions is not None and values is not None:
                                     profiles.append((positions, values))
                                     labels.append(f"Window {len(profiles)}")
@@ -561,6 +561,9 @@ class ProfileDialog(QtWidgets.QDialog):
         self.ax.legend()
         self.ax.grid(True)
         
+        # Format Y-axis to show 4 decimal places
+        self.ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.4f'))
+        
         self.figure.tight_layout()
         self.canvas.draw()
     
@@ -571,85 +574,95 @@ class ProfileDialog(QtWidgets.QDialog):
         super().closeEvent(event)
 
 def get_profile_values(image, start_point, end_point, num_samples=1000, scene=None, pixmap_item=None):
-    """Get pixel values along a line in an image.
+    """Get pixel values along a line in the image.
     
     Args:
-        image: numpy array containing image data or None if using volumetric data
-        start_point: (x, y) tuple of line start point in scene coordinates
-        end_point: (x, y) tuple of line end point in scene coordinates
-        num_samples: Number of points to sample along the line
-        scene: The QGraphicsScene containing the image (needed for coordinate transformation)
-        pixmap_item: The QGraphicsPixmapItem containing the image
-    
+        image: numpy array or QImage
+        start_point: (x, y) tuple or QPointF of start point
+        end_point: (x, y) tuple or QPointF of end point
+        num_samples: number of points to sample
+        scene: QGraphicsScene for coordinate transformation
+        pixmap_item: QGraphicsPixmapItem for coordinate transformation
+        
     Returns:
-        Tuple of (positions, values) where positions are distances along the line
-        and values are the corresponding pixel values
+        tuple of (x_values, y_values, pixel_values)
     """
+    if image is None:
+        return None, None, None
+        
+    # Convert QPointF to tuple if needed
+    if isinstance(start_point, QtCore.QPointF):
+        start_point = (start_point.x(), start_point.y())
+    if isinstance(end_point, QtCore.QPointF):
+        end_point = (end_point.x(), end_point.y())
+        
+    # Convert scene coordinates to image coordinates if needed
     if scene and pixmap_item:
-        # Convert scene coordinates to item coordinates
-        start_point_item = pixmap_item.mapFromScene(QtCore.QPointF(*start_point))
-        end_point_item = pixmap_item.mapFromScene(QtCore.QPointF(*end_point))
-        
-        # Get item coordinates
-        start_x = start_point_item.x()
-        start_y = start_point_item.y()
-        end_x = end_point_item.x()
-        end_y = end_point_item.y()
-        
-        # Create points along the line in item coordinates
-        x = np.linspace(start_x, end_x, num_samples)
-        y = np.linspace(start_y, end_y, num_samples)
-        
-        # Calculate positions along the line
-        positions = np.sqrt((x - start_x)**2 + (y - start_y)**2)
-        
-        # Check if we're dealing with volumetric data
-        if hasattr(scene, 'views') and scene.views():
-            view = scene.views()[0]
-            mdi_child = view.parent()
-            if hasattr(mdi_child, 'is_volumetric') and mdi_child.is_volumetric:
-                volumetric_handler = mdi_child.volumetric_handler
-                current_slice = mdi_child.current_slice
-                try:
-                    # Open the image file and get the current slice
-                    with Image.open(volumetric_handler.filepath) as img:
-                        img.seek(current_slice)
-                        # Convert coordinates to integers and clip to image boundaries
-                        x_indices = np.clip(x.astype(int), 0, img.width - 1)
-                        y_indices = np.clip(y.astype(int), 0, img.height - 1)
-                        # Convert image to numpy array
-                        img_array = np.array(img)
-                        # Get values along the line
-                        if img.mode == 'L':  # 8-bit grayscale
-                            values = img_array[y_indices, x_indices]
-                        elif img.mode == 'I':  # 32-bit integer
-                            values = img_array[y_indices, x_indices]
-                        elif img.mode == 'F':  # 32-bit float
-                            values = img_array[y_indices, x_indices]
-                        else:  # RGB or RGBA
-                            if len(img_array.shape) == 3:
-                                # Average across color channels
-                                values = np.mean(img_array[y_indices, x_indices], axis=1)
-                            else:
-                                values = img_array[y_indices, x_indices]
-                        return positions, values
-                except Exception as e:
-                    print(f"Error reading volumetric data: {str(e)}")
-                    return positions, np.zeros_like(positions)
-        
-        # For regular images, get pixel values using bilinear interpolation
-        if image is not None:
-            if len(image.shape) == 3:  # Color image
-                values = []
-                for channel in range(image.shape[2]):
-                    values.append(get_interpolated_values(image[:,:,channel], x, y))
-                values = np.mean(values, axis=0)  # Average across channels
-            else:  # Grayscale image
-                values = get_interpolated_values(image, x, y)
+        # Get the view from the scene
+        view = scene.views()[0] if scene.views() else None
+        if view:
+            # Transform scene coordinates to view coordinates
+            start_point = view.mapFromScene(start_point[0], start_point[1])
+            end_point = view.mapFromScene(end_point[0], end_point[1])
             
-            return positions, values
+            # Transform to image coordinates
+            start_point = pixmap_item.mapFromScene(view.mapToScene(start_point))
+            end_point = pixmap_item.mapFromScene(view.mapToScene(end_point))
+            
+            # Convert QPointF to tuple after transformation
+            if isinstance(start_point, QtCore.QPointF):
+                start_point = (start_point.x(), start_point.y())
+            if isinstance(end_point, QtCore.QPointF):
+                end_point = (end_point.x(), end_point.y())
     
-    return None, None
+    # Generate points along the line
+    x = np.linspace(start_point[0], end_point[0], num_samples)
+    y = np.linspace(start_point[1], end_point[1], num_samples)
+    
+    # Get pixel values
+    if isinstance(image, np.ndarray):
+        # For numpy arrays (including BigTIFF data)
+        try:
+            # Ensure coordinates are within bounds
+            x = np.clip(x, 0, image.shape[1]-1)
+            y = np.clip(y, 0, image.shape[0]-1)
+            
+            # Get interpolated values
+            values = get_interpolated_values(image, x, y)
+            
+            # Calculate distance along line
+            distances = np.sqrt((x - x[0])**2 + (y - y[0])**2)
+            
+            return distances, values, None  # No color values for grayscale/float data
+            
+        except Exception as e:
+            logger.error(f"Error getting profile values from numpy array: {e}")
+            return None, None, None
+            
+    else:
+        # For QImage
+        try:
+            values = []
+            colors = []
+            for i in range(num_samples):
+                xi, yi = int(x[i]), int(y[i])
+                if 0 <= xi < image.width() and 0 <= yi < image.height():
+                    pixel = image.pixel(xi, yi)
+                    color = QtGui.QColor(pixel)
+                    values.append(color.red())  # Use red channel for grayscale
+                    colors.append((color.red(), color.green(), color.blue()))
+                else:
+                    values.append(0)
+                    colors.append((0, 0, 0))
+            
+            # Calculate distance along line
+            distances = np.sqrt((x - x[0])**2 + (y - y[0])**2)
+            
+            return distances, np.array(values), colors
+            
+        except Exception as e:
+            logger.error(f"Error getting profile values from QImage: {e}")
+            return None, None, None
 
 def get_interpolated_values(image, x, y):
     """Get interpolated pixel values at floating point coordinates.

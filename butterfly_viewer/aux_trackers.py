@@ -156,3 +156,65 @@ class EventTrackerSplitBypassInterface(QtCore.QObject):
         if event.type() == QtCore.QEvent.MouseButtonPress:
             self.propagate_mouse_press_event.emit(event)
         return super().eventFilter(source, event)
+
+def update_tracker(self, tracker):
+    """Update tracker position and appearance based on current state."""
+    if not tracker or not tracker.isVisible():
+        return
+        
+    # Get current slice
+    current_slice = getattr(self.parent(), 'current_slice', 0)
+    
+    # Update tracker position
+    pos = tracker.pos()
+    scene_pos = tracker.mapToScene(pos)
+    
+    # Get pixel value at tracker position
+    pixel_value = "N/A"
+    
+    # Check if parent is a SplitViewMdiChild
+    if hasattr(self.parent(), 'is_volumetric') and self.parent().is_volumetric:
+        volumetric_handler = getattr(self.parent(), 'volumetric_handler', None)
+        if volumetric_handler:
+            int_scene_x = int(scene_pos.x())
+            int_scene_y = int(scene_pos.y())
+            
+            try:
+                import tifffile
+                
+                # Open image file
+                with tifffile.TiffFile(volumetric_handler.filepath) as tif:
+                    # Get data for current slice
+                    data = tif.series[0].pages[current_slice].asarray()
+                    
+                    # Check image bounds
+                    if 0 <= int_scene_x < data.shape[1] and 0 <= int_scene_y < data.shape[0]:
+                        # Get pixel value
+                        value = data[int_scene_y, int_scene_x]
+                        if data.dtype.kind == 'f':  # float data
+                            pixel_value = f"{value:.3f}"
+                        else:  # integer data
+                            pixel_value = f"{value}"
+            except Exception as e:
+                pixel_value = f"Error: {str(e)}"
+    else:
+        # Handle regular image
+        pixmap = self.parent()._pixmapItem_main_topleft.pixmap()
+        if not pixmap.isNull():
+            image = pixmap.toImage()
+            if 0 <= scene_pos.x() < image.width() and 0 <= scene_pos.y() < image.height():
+                pixel = image.pixel(int(scene_pos.x()), int(scene_pos.y()))
+                color = QtGui.QColor(pixel)
+                if pixmap.depth() <= 8:  # grayscale image
+                    pixel_value = f"{color.red()}"  # grayscale has same RGB values
+                else:  # color image
+                    pixel_value = f"({color.red()}, {color.green()}, {color.blue()})"
+    
+    # Update tracker text
+    tracker.setToolTip(f"Slice: {current_slice}\nPosition: ({int(scene_pos.x())}, {int(scene_pos.y())})\nValue: {pixel_value}")
+    
+    # Update tracker appearance based on state
+    if tracker.isSelected():
+        tracker.setPen(QtGui.QPen(QtCore.Qt.red, 2))
+    else:
+        tracker.setPen(QtGui.QPen(QtCore.Qt.blue, 1))

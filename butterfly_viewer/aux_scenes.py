@@ -13,6 +13,7 @@ Creates the base (main) scene of the SplitView for the Butterfly Viewer and Regi
 from PyQt5 import QtCore, QtWidgets
 import os
 import numpy as np
+import tifffile
 
 from aux_comments import CommentItem
 from aux_rulers import RulerItem
@@ -550,6 +551,16 @@ class CustomQGraphicsScene(QtWidgets.QGraphicsScene):
                             ptr = image.bits()
                             ptr.setsize(height * width * 4)
                             image = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+                        elif hasattr(child, 'volumetric_handler'):
+                            # Use tifffile for volumetric data
+                            try:
+                                import tifffile
+                                with tifffile.TiffFile(child.volumetric_handler.filepath) as tif:
+                                    current_slice = getattr(child, 'current_slice', 0)
+                                    image = tif.series[0].pages[current_slice].asarray()
+                            except Exception as e:
+                                logger.error(f"Error reading volumetric data with tifffile: {e}")
+                                image = None
                         
                         # Get profile values with scene and pixmap_item for coordinate transformation
                         profile = get_profile_values(image, start_point, end_point, 
