@@ -369,24 +369,19 @@ class SplitViewMdiChild(SplitView):
         self.max_value_label.setText(f"{curr_max:.4f}")
         
     def on_min_slider_changed(self, value):
-        """Handle changes to the minimum value slider.
-        
-        Args:
-            value: New slider value
-        """
+        """Handle minimum slider value changes."""
         if not self.is_volumetric or not self.volumetric_handler:
             return
             
-        # Convert slider value back to actual value
-        precision = 10000 if self.volumetric_handler.is_float else 1
-        min_value = value / precision
+        # Convert slider value to actual data value
+        min_value = value / 10000.0
         
         # Ensure min value doesn't exceed max value
         _, curr_max = self.volumetric_handler.data_range
         if min_value >= curr_max:
-            min_value = curr_max - (1/precision)  # Keep at least a small gap
+            min_value = curr_max - 0.0001  # Keep at least a small gap
             self.min_slider.blockSignals(True)
-            self.min_slider.setValue(int(min_value * precision))
+            self.min_slider.setValue(int(min_value * 10000))
             self.min_slider.blockSignals(False)
             
         # Update display and label
@@ -394,24 +389,19 @@ class SplitViewMdiChild(SplitView):
         self.update_display_range(min_value=min_value)
         
     def on_max_slider_changed(self, value):
-        """Handle changes to the maximum value slider.
-        
-        Args:
-            value: New slider value
-        """
+        """Handle maximum slider value changes."""
         if not self.is_volumetric or not self.volumetric_handler:
             return
             
-        # Convert slider value back to actual value
-        precision = 10000 if self.volumetric_handler.is_float else 1
-        max_value = value / precision
+        # Convert slider value to actual data value
+        max_value = value / 10000.0
         
-        # Ensure max value doesn't fall below min value
+        # Ensure max value is greater than min value
         curr_min, _ = self.volumetric_handler.data_range
         if max_value <= curr_min:
-            max_value = curr_min + (1/precision)  # Keep at least a small gap
+            max_value = curr_min + 0.0001  # Keep at least a small gap
             self.max_slider.blockSignals(True)
-            self.max_slider.setValue(int(max_value * precision))
+            self.max_slider.setValue(int(max_value * 10000))
             self.max_slider.blockSignals(False)
             
         # Update display and label
@@ -419,39 +409,20 @@ class SplitViewMdiChild(SplitView):
         self.update_display_range(max_value=max_value)
         
     def update_display_range(self, min_value=None, max_value=None):
-        """Update the display range in the volumetric handler and refresh the view.
-        
-        Args:
-            min_value: New minimum value (or None to keep current)
-            max_value: New maximum value (or None to keep current)
-        """
-        if not self.is_volumetric or not self.volumetric_handler:
+        """Update the display range for the current slice."""
+        if not self.volumetric_handler:
             return
             
-        # Prevent recursion when syncing display range
-        if self._handling_range_sync:
-            return
-            
-        # Update the display range
-        updated = self.volumetric_handler.update_display_range(min_value, max_value)
-        
-        if updated:
-            # Refresh the current range label
-            curr_min, curr_max = self.volumetric_handler.data_range
-            self.current_range_label.setText(f"Current: [{curr_min:.4f}, {curr_max:.4f}]")
-            
-            # Emit signal for synchronization
-            self.display_range_changed.emit(curr_min, curr_max)
-            
-            # Reload the current slice to apply the new range
+        # Update the handler's display range
+        if self.volumetric_handler.update_display_range(min_value, max_value):
+            # Reload current slice to apply new range
             self.load_slice(self.current_slice)
             
-            # If range synchronization is enabled, synchronize all other windows
-            window = self.window()
-            if isinstance(window, MultiViewMainWindow) and self.sync_this_range:
-                self._handling_range_sync = True
-                window.synchDisplayRange(self, curr_min, curr_max)
-                self._handling_range_sync = False
+            # Sync with other windows if enabled
+            if self.sync_this_range:
+                # Get current range values to ensure we have both min and max
+                curr_min, curr_max = self.volumetric_handler.data_range
+                self.display_range_changed.emit(curr_min, curr_max)
         
     def reset_display_range(self):
         """Reset the display range to the original detected values."""
@@ -2043,36 +2014,18 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     
                     # 볼륨 이미지에서 원본 데이터 값 가져오기
                     try:
-                        from PIL import Image
+                        import tifffile
                         import numpy as np
                         
                         # 이미지 파일 열기
-                        with Image.open(volumetric_handler.filepath) as img:
-                            img.seek(current_slice)  # 현재 슬라이스로 이동
+                        with tifffile.TiffFile(volumetric_handler.filepath) as tif:
+                            # 현재 슬라이스의 데이터 가져오기
+                            img_array = tif.series[0].pages[current_slice].asarray()
                             
                             # 이미지 범위 확인
-                            if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
-                                # 이미지를 배열로 변환
-                                img_array = np.array(img)
-                                
+                            if 0 <= int_scene_x < img_array.shape[1] and 0 <= int_scene_y < img_array.shape[0]:
                                 # 픽셀 값 가져오기
-                                if img.mode == 'L':  # 8비트 그레이스케일
-                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'I':  # 32비트 정수
-                                    pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'F':  # 32비트 실수
-                                    value = img_array[int_scene_y, int_scene_x]
-                                    pixel_value = f"{value:.3f}"
-                                else:
-                                    # RGB, RGBA 등 다른 이미지 모드 처리
-                                    if img.mode == 'RGB':
-                                        r, g, b = img_array[int_scene_y, int_scene_x]
-                                        pixel_value = f"({r}, {g}, {b})"
-                                    elif img.mode == 'RGBA':
-                                        r, g, b, a = img_array[int_scene_y, int_scene_x]
-                                        pixel_value = f"({r}, {g}, {b}, {a})"
-                                    else:
-                                        pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
+                                pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
                     except Exception as e:
                         pixel_value = f"Error: {str(e)}"
             else:
@@ -2111,75 +2064,49 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     # 볼륨 데이터인 경우
                     if hasattr(child, '_volume_data') and child._volume_data is not None:
                         try:
-                            img = child._volume_data
-                            current_slice = child.current_slice
-                            int_scene_x = int(scene_x)
-                            int_scene_y = int(scene_y)
+                            import tifffile
+                            import numpy as np
                             
-                            img.seek(current_slice)  # 현재 슬라이스로 이동
-                            
-                            # 이미지 범위 확인
-                            if 0 <= int_scene_x < img.width and 0 <= int_scene_y < img.height:
-                                # 이미지를 배열로 변환
-                                img_array = np.array(img)
+                            # 이미지 파일 열기
+                            with tifffile.TiffFile(child.volumetric_handler.filepath) as tif:
+                                # 현재 슬라이스의 데이터 가져오기
+                                img_array = tif.series[0].pages[current_slice].asarray()
                                 
-                                # 픽셀 값 가져오기
-                                if img.mode == 'L':  # 8비트 그레이스케일
+                                # 이미지 범위 확인
+                                if 0 <= int_scene_x < img_array.shape[1] and 0 <= int_scene_y < img_array.shape[0]:
+                                    # 픽셀 값 가져오기
                                     child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'I':  # 32비트 정수
-                                    child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
-                                elif img.mode == 'F':  # 32비트 실수
-                                    value = img_array[int_scene_y, int_scene_x]
-                                    child_pixel_value = f"{value:.3f}"
-                                else:
-                                    # RGB, RGBA 등 다른 이미지 모드 처리
-                                    if img.mode == 'RGB':
-                                        r, g, b = img_array[int_scene_y, int_scene_x]
-                                        child_pixel_value = f"({r}, {g}, {b})"
-                                    elif img.mode == 'RGBA':
-                                        r, g, b, a = img_array[int_scene_y, int_scene_x]
-                                        child_pixel_value = f"({r}, {g}, {b}, {a})"
-                                    else:
-                                        child_pixel_value = f"{img_array[int_scene_y, int_scene_x]}"
                         except Exception as e:
                             child_pixel_value = f"Error: {str(e)}"
                     else:
                         # 일반 이미지 처리 (볼륨 데이터가 아닌 경우)
                         try:
-                            from PIL import Image
+                            import tifffile
                             import numpy as np
                             
                             # 원본 이미지 파일 열기
-                            with Image.open(child.currentFile) as img:
+                            with tifffile.TiffFile(child.currentFile) as tif:
+                                # 이미지 데이터 가져오기
+                                img_array = tif.series[0].pages[0].asarray()
+                                
                                 # 이미지 범위 확인
-                                if 0 <= int(scene_x) < img.width and 0 <= int(scene_y) < img.height:
-                                    # 이미지를 배열로 변환
-                                    img_array = np.array(img)
-                                    
+                                if 0 <= int(scene_x) < img_array.shape[1] and 0 <= int(scene_y) < img_array.shape[0]:
                                     # 픽셀 값 가져오기
-                                    if img.mode == 'L':  # 8비트 그레이스케일
+                                    if len(img_array.shape) == 2:  # 그레이스케일
                                         child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
-                                    elif img.mode == 'I':  # 32비트 정수
-                                        child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
-                                    elif img.mode == 'F':  # 32비트 실수
-                                        value = img_array[int(scene_y), int(scene_x)]
-                                        child_pixel_value = f"{value:.3f}"
-                                    else:
-                                        # RGB, RGBA 등 다른 이미지 모드 처리
-                                        if img.mode == 'RGB':
+                                    elif len(img_array.shape) == 3:  # 컬러
+                                        if img_array.shape[2] == 3:  # RGB
                                             r, g, b = img_array[int(scene_y), int(scene_x)]
                                             child_pixel_value = f"({r}, {g}, {b})"
-                                        elif img.mode == 'RGBA':
+                                        elif img_array.shape[2] == 4:  # RGBA
                                             r, g, b, a = img_array[int(scene_y), int(scene_x)]
                                             child_pixel_value = f"({r}, {g}, {b}, {a})"
-                                        else:
-                                            child_pixel_value = f"{img_array[int(scene_y), int(scene_x)]}"
                         except Exception as e:
                             # 에러가 발생하면 QPixmap에서 값을 읽음 (fallback)
                             pixmap = child._pixmapItem_main_topleft.pixmap()
                             if not pixmap.isNull() and 0 <= scene_x < pixmap.width() and 0 <= scene_y < pixmap.height():
                                 image = pixmap.toImage()
-                                pixel = image.pixel(scene_x, scene_y)
+                                pixel = image.pixel(int(scene_x), int(scene_y))
                                 color = QtGui.QColor(pixel)
                                 if pixmap.depth() <= 8:  # 그레이스케일 이미지
                                     child_pixel_value = f"{color.red()}"  # 그레이스케일은 RGB 값이 모두 동일
@@ -4293,16 +4220,13 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             crop_rect = itemRect.toRect()
             
             # Open the source file for reading
-            with Image.open(self.volumetric_handler.filepath) as source:
-                # Get the first image to determine shape, mode, etc.
-                source.seek(start_slice)
-                first_img = source.copy()
-                mode = first_img.mode
+            with tifffile.TiffFile(self.volumetric_handler.filepath) as tif:
+                # Get the first image to determine shape
+                first_img = tif.series[0].pages[start_slice].asarray()
                 
                 # Crop the first image
-                cropped_first = first_img.crop((crop_rect.x(), crop_rect.y(), 
-                                               crop_rect.x() + crop_rect.width(), 
-                                               crop_rect.y() + crop_rect.height()))
+                cropped_first = first_img[crop_rect.y():crop_rect.y() + crop_rect.height(),
+                                        crop_rect.x():crop_rect.x() + crop_rect.width()]
                 
                 # Prepare list for all slices
                 cropped_slices = [cropped_first]
@@ -4314,23 +4238,19 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
                     self.display_loading_grayout(True, f"Processing 3D crop... {progress_pct}%")
                     
                     # Get the slice
-                    source.seek(i)
-                    img = source.copy()
+                    img = tif.series[0].pages[i].asarray()
                     
                     # Crop the slice
-                    cropped = img.crop((crop_rect.x(), crop_rect.y(), 
-                                       crop_rect.x() + crop_rect.width(), 
-                                       crop_rect.y() + crop_rect.height()))
+                    cropped = img[crop_rect.y():crop_rect.y() + crop_rect.height(),
+                                crop_rect.x():crop_rect.x() + crop_rect.width()]
                                        
                     cropped_slices.append(cropped)
                 
                 # Save as multi-page TIFF
-                cropped_first.save(
+                tifffile.imwrite(
                     filepath,
-                    save_all=True,
-                    append_images=cropped_slices[1:],
-                    format='TIFF',
-                    compression='tiff_deflate'
+                    np.stack(cropped_slices),
+                    compression='zlib'
                 )
                 
             # Show success message
@@ -4983,24 +4903,23 @@ class MultiViewMainWindow(QtWidgets.QMainWindow):
             if hasattr(child, 'is_volumetric') and child.is_volumetric:
                 # For volumetric data
                 try:
-                    from PIL import Image
+                    import tifffile
                     import numpy as np
                     
                     current_slice = child.current_slice
-                    with Image.open(child.volumetric_handler.filepath) as img:
-                        img.seek(current_slice)
-                        image_data = np.array(img)
+                    with tifffile.TiffFile(child.volumetric_handler.filepath) as tif:
+                        image_data = tif.series[0].pages[current_slice].asarray()
                 except Exception as e:
                     print(f"Error loading volumetric data: {str(e)}")
                     continue
             else:
                 # For regular images
                 try:
-                    from PIL import Image
+                    import tifffile
                     import numpy as np
                     
-                    with Image.open(child.currentFile) as img:
-                        image_data = np.array(img)
+                    with tifffile.TiffFile(child.currentFile) as tif:
+                        image_data = tif.series[0].pages[0].asarray()
                 except Exception as e:
                     print(f"Error loading image data: {str(e)}")
                     continue
